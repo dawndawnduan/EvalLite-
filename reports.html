@@ -1,0 +1,2464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>评测报告 - EvalLite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body class="min-h-screen">
+    <!-- 导航栏将通过JS插入 -->
+
+    <!-- Main Content -->
+    <main class="page-container">
+        <!-- Header -->
+        <div class="mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="page-title">评测报告</h1>
+                <p class="page-subtitle">查看和管理评测结果</p>
+            </div>
+            <button id="clearAllBtn" class="px-4 py-2 text-red-600 border border-red-300 rounded-xl hover:bg-red-50 transition font-medium">
+                清空历史
+            </button>
+        </div>
+
+        <!-- History List -->
+        <div id="historyList" class="space-y-4">
+            <!-- History items will be rendered here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="glass-effect rounded-2xl p-12 text-center shadow-lg" style="display: none;">
+            <div class="text-6xl mb-4">📊</div>
+            <h3 class="text-xl font-semibold text-gray-700 mb-2">暂无评测记录</h3>
+            <p class="text-gray-500 mb-6">执行测试后会自动保存在这里</p>
+            <a href="test.html" class="btn-primary px-6 py-3 rounded-xl font-medium inline-block shadow-lg text-white">
+                开始测试
+            </a>
+        </div>
+    </main>
+
+    <!-- Report Detail Modal -->
+    <div id="reportModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 overflow-y-auto" style="backdrop-filter: blur(5px);">
+        <div class="min-h-screen px-4 py-8">
+            <div class="glass-effect rounded-2xl max-w-7xl mx-auto shadow-2xl">
+                <div class="p-8">
+                    <!-- Modal Header -->
+                    <div class="flex justify-between items-start mb-6">
+                        <h2 class="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                            评测报告详情
+                        </h2>
+                        <button id="closeReportModal" class="text-gray-500 hover:text-gray-700 text-2xl">
+                            ×
+                        </button>
+                    </div>
+
+                    <!-- Tab Navigation -->
+                    <div class="flex gap-2 mb-6 border-b border-gray-200">
+                        <button class="tab-btn active" data-tab="output">模型输出</button>
+                        <button class="tab-btn" data-tab="scoring">评分</button>
+                        <button class="tab-btn" data-tab="visualization">可视化分析</button>
+                        <button class="tab-btn" data-tab="export">导出</button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div id="tabContent">
+                        <!-- Content will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            border-bottom: 2px solid transparent;
+            color: #6b7280;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            color: #7c3aed;
+            border-bottom-color: #7c3aed;
+        }
+
+        .tab-btn:hover {
+            color: #7c3aed;
+        }
+
+        .weight-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(to right, #e5e7eb, #7c3aed);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .weight-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #7c3aed;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .weight-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #7c3aed;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+    </style>
+
+    <!-- Scripts -->
+    <script type="module">
+        import { renderNavbar, showToast } from './js/navbar.js';
+        import { Storage } from './js/storage.js';
+        import { callModelAPI } from './js/apiClient.js';
+
+        // 渲染导航栏
+        renderNavbar('history');
+
+        class ReportManager {
+            constructor() {
+                this.currentReport = null;
+                this.currentTab = 'output';
+                this.currentStep = 1; // 评分步骤：1-4
+                this.radarChart = null;
+                this.costChart = null;
+                this.aiScoringReasons = {}; // 存储AI评分理由
+                this.attachEventListeners();
+
+                // 检查URL参数,看是否从history.html直接跳转
+                const urlParams = new URLSearchParams(window.location.search);
+                const reportId = urlParams.get('id');
+                const mode = urlParams.get('mode');
+                const tab = urlParams.get('tab');
+
+                if (reportId) {
+                    // 直接打开指定报告
+                    const history = Storage.getHistory();
+                    const reportIndex = history.findIndex(h => h.id === reportId);
+                    if (reportIndex !== -1) {
+                        this.currentReport = { ...history[reportIndex], index: reportIndex };
+                        const modal = document.getElementById('reportModal');
+                        modal.classList.remove('hidden');
+                        modal.style.display = 'block';
+                        this.switchTab(tab || (mode === 'evaluation' ? 'scoring' : 'output'));
+                    }
+                } else {
+                    this.renderHistoryList();
+                }
+            }
+
+            attachEventListeners() {
+                document.getElementById('clearAllBtn').addEventListener('click', () => this.clearAll());
+                document.getElementById('closeReportModal').addEventListener('click', () => this.closeReportModal());
+
+                // Tab切换
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        this.switchTab(e.target.dataset.tab);
+                    });
+                });
+
+                // 点击模态框背景关闭
+                document.getElementById('reportModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'reportModal') this.closeReportModal();
+                });
+            }
+
+            renderHistoryList() {
+                const history = Storage.getHistory();
+                const listContainer = document.getElementById('historyList');
+                const emptyState = document.getElementById('emptyState');
+
+                if (history.length === 0) {
+                    listContainer.style.display = 'none';
+                    emptyState.style.display = 'block';
+                    return;
+                }
+
+                listContainer.style.display = 'block';
+                emptyState.style.display = 'none';
+
+                listContainer.innerHTML = history.map((item, index) => {
+                    const modeText = item.mode === 'single' ? '单任务' : '任务链';
+                    const taskName = item.mode === 'single' ? item.task.name : `任务链 (${item.chain.length}个任务)`;
+                    const modelsCount = item.results.length;
+                    const hasEvaluation = item.evaluation && item.evaluation.scores;
+
+                    return `
+                        <div class="glass-effect rounded-2xl p-6 shadow-lg card">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="px-3 py-1 text-xs font-medium text-white rounded-full bg-gradient-to-r ${item.mode === 'single' ? 'from-blue-400 to-blue-600' : 'from-purple-400 to-purple-600'}">
+                                            ${modeText}
+                                        </span>
+                                        <h3 class="text-lg font-semibold text-gray-800">${this.escapeHtml(taskName)}</h3>
+                                        ${hasEvaluation ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">已评分</span>' : ''}
+                                    </div>
+                                    <p class="text-sm text-gray-500">${this.formatDate(item.timestamp)}</p>
+                                    <p class="text-sm text-gray-600 mt-2">测试了 ${modelsCount} 个模型</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button
+                                        onclick="window.reportManager.viewReport(${index})"
+                                        class="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition font-medium text-sm">
+                                        查看详情
+                                    </button>
+                                    <button
+                                        onclick="window.reportManager.deleteReport(${index})"
+                                        class="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition font-medium text-sm">
+                                        删除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            viewReport(index) {
+                const history = Storage.getHistory();
+                this.currentReport = { ...history[index], index };
+
+                const modal = document.getElementById('reportModal');
+                modal.classList.remove('hidden');
+                modal.style.display = 'block';
+
+                this.switchTab('output');
+            }
+
+            switchTab(tabName) {
+                this.currentTab = tabName;
+
+                // 更新Tab按钮状态
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tabName);
+                });
+
+                // 渲染对应内容
+                const content = document.getElementById('tabContent');
+                switch(tabName) {
+                    case 'output':
+                        content.innerHTML = this.renderOutputTab();
+                        break;
+                    case 'scoring':
+                        content.innerHTML = this.renderScoringTab();
+                        this.attachScoringEventListeners();
+                        break;
+                    case 'visualization':
+                        content.innerHTML = this.renderVisualizationTab();
+                        setTimeout(() => this.renderCharts(), 100);
+                        break;
+                    case 'export':
+                        content.innerHTML = this.renderExportTab();
+                        this.attachExportEventListeners();
+                        break;
+                }
+            }
+
+            renderOutputTab() {
+                if (!this.currentReport) return '';
+
+                const { mode, task, results } = this.currentReport;
+
+                if (mode === 'single') {
+                    return `
+                        <div class="space-y-4">
+                            <div class="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                                <h3 class="font-semibold text-blue-900 mb-2">任务信息</h3>
+                                <p class="text-sm text-blue-800 mb-1"><strong>任务名称:</strong> ${this.escapeHtml(task.name)}</p>
+                                ${task.systemPrompt ? `<p class="text-sm text-blue-800 mb-1"><strong>System Prompt:</strong> ${this.escapeHtml(task.systemPrompt)}</p>` : ''}
+                                <p class="text-sm text-blue-800"><strong>User Prompt:</strong> ${this.escapeHtml(task.userPrompt)}</p>
+                            </div>
+
+                            ${results.map(modelResult => {
+                                const { model, executions } = modelResult;
+                                const exec = executions[0];
+
+                                // 计算成本
+                                const pricing = Storage.getModelPricing(model);
+                                const cost = pricing && exec.tokensUsed
+                                    ? Storage.calculateCost(exec.tokensUsed / 2, exec.tokensUsed / 2, pricing)
+                                    : 0;
+
+                                return `
+                                    <div class="bg-white border-2 border-gray-200 rounded-xl p-4">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div>
+                                                <h4 class="font-semibold text-gray-800">${model.modelName}</h4>
+                                                <p class="text-sm text-gray-600">${model.provider}</p>
+                                            </div>
+                                            <div class="text-right text-sm">
+                                                <p class="text-gray-600">耗时: ${exec.responseTime}ms</p>
+                                                <p class="text-gray-500">Tokens: ${exec.tokensUsed}</p>
+                                                ${cost > 0 ? `<p class="text-green-600">成本: $${cost.toFixed(6)}</p>` : ''}
+                                            </div>
+                                        </div>
+
+                                        ${exec.success ? `
+                                            <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                                                <p class="text-gray-800 text-sm whitespace-pre-wrap">${this.escapeHtml(exec.content)}</p>
+                                            </div>
+                                        ` : `
+                                            <div class="bg-red-50 p-3 rounded border border-red-200">
+                                                <p class="text-red-600 text-sm">❌ ${this.escapeHtml(exec.error)}</p>
+                                            </div>
+                                        `}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+
+                return '<p class="text-gray-500">任务链模式暂不支持详细评测</p>';
+            }
+
+            renderScoringTab() {
+                return `
+                    <div class="space-y-6">
+                        <!-- Step Navigator -->
+                        ${this.renderStepNavigator()}
+
+                        <!-- Step Content -->
+                        <div id="stepContent">
+                            ${this.renderCurrentStep()}
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderStepNavigator() {
+                const steps = [
+                    { num: 1, name: '选择模板', icon: '📋' },
+                    { num: 2, name: 'AI配置', icon: '🤖' },
+                    { num: 3, name: '执行评分', icon: '✍️' },
+                    { num: 4, name: '权重计算', icon: '📊' }
+                ];
+
+                return `
+                    <div class="flex items-center justify-between bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
+                        ${steps.map((step, idx) => `
+                            <div class="flex items-center ${idx < steps.length - 1 ? 'flex-1' : ''}">
+                                <button
+                                    onclick="window.reportManager.goToStep(${step.num})"
+                                    class="flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition ${
+                                        this.currentStep === step.num
+                                            ? 'bg-purple-600 text-white shadow-lg'
+                                            : this.currentStep > step.num
+                                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                : 'bg-white text-gray-500 hover:bg-gray-100'
+                                    }">
+                                    <span class="text-2xl">${step.icon}</span>
+                                    <span class="text-xs font-medium">${step.num}. ${step.name}</span>
+                                    ${this.currentStep > step.num ? '<span class="text-xs">✓</span>' : ''}
+                                </button>
+                                ${idx < steps.length - 1 ? '<div class="flex-1 h-0.5 bg-gray-300 mx-2"></div>' : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            renderCurrentStep() {
+                switch(this.currentStep) {
+                    case 1: return this.renderStep1();
+                    case 2: return this.renderStep2();
+                    case 3: return this.renderStep3();
+                    case 4: return this.renderStep4();
+                    default: return this.renderStep1();
+                }
+            }
+
+            goToStep(stepNum) {
+                this.currentStep = stepNum;
+                const stepContent = document.getElementById('stepContent');
+                if (stepContent) {
+                    stepContent.innerHTML = this.renderCurrentStep();
+                    this.attachStepEventListeners();
+                }
+                // 更新步骤导航器
+                const navContainer = stepContent.previousElementSibling;
+                if (navContainer) {
+                    navContainer.outerHTML = this.renderStepNavigator();
+                }
+            }
+
+            renderStep1() {
+                const templates = Storage.getEvaluationTemplates();
+                const evaluation = this.currentReport.evaluation || {};
+
+                return `
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-800">步骤 1：选择评测模板</h3>
+
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200">
+                            <label class="block text-sm font-semibold text-gray-800 mb-3">从评测配置中选择模板</label>
+                            <select id="templateSelect" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                                <option value="">请选择评测模板...</option>
+                                ${templates.map(t => `
+                                    <option value="${t.id}" ${evaluation.templateId === t.id ? 'selected' : ''}>
+                                        ${this.escapeHtml(t.name)}
+                                    </option>
+                                `).join('')}
+                            </select>
+
+                            <div id="templatePreview" class="mt-4" style="display: none;">
+                                <!-- 模板预览将在这里显示 -->
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end gap-3">
+                            <button id="step1NextBtn" class="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium shadow-lg" disabled>
+                                下一步：配置AI评分 →
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderStep2() {
+                const evaluation = this.currentReport.evaluation || {};
+                const models = Storage.getModels();
+
+                // 获取当前选择的模板
+                const templateId = evaluation.templateId;
+                const template = templateId ? Storage.getEvaluationTemplate(templateId) : null;
+
+                return `
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-800">步骤 2：配置AI评分（可选）</h3>
+
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200 space-y-4">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="enableAIScoring" class="w-5 h-5 text-purple-600" ${evaluation.aiEnabled ? 'checked' : ''}>
+                                <span class="text-sm font-semibold">启用AI自动评分</span>
+                            </label>
+
+                            <div id="aiConfigPanel" class="space-y-4" style="display: ${evaluation.aiEnabled ? 'block' : 'none'};">
+                                <!-- 参考答案 -->
+                                <div class="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                                    <label class="block text-sm font-semibold text-gray-800 mb-2">
+                                        📋 参考答案 <span class="text-xs font-normal text-red-600">*必填</span>
+                                    </label>
+                                    <textarea
+                                        id="referenceAnswerInput"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 resize-none"
+                                        rows="5"
+                                        placeholder="请输入任务的标准答案或期望输出...
+
+示例：
+- 翻译任务：输入标准译文
+- 代码任务：输入正确的代码实现
+- 写作任务：输入高质量范文"
+                                    >${this.escapeHtml(evaluation.referenceAnswer || '')}</textarea>
+                                    <p class="text-xs text-gray-600 mt-2">💡 AI评分将参考此答案进行打分，答案越详细，评分越准确</p>
+                                </div>
+
+                                <!-- 评委模型 -->
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-800 mb-2">选择评委模型</label>
+                                    <select id="judgeModelSelect" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                                        <option value="">请选择...</option>
+                                        ${models.map(m => `
+                                            <option value="${m.id}" ${evaluation.judgeModelId === m.id ? 'selected' : ''}>
+                                                ${m.modelName} (${m.provider})
+                                            </option>
+                                        `).join('')}
+                                    </select>
+                                </div>
+
+                                <!-- AI评分Prompt（预填，可编辑） -->
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-800 mb-2">
+                                        AI评分Prompt模板
+                                        <span class="text-xs font-normal text-gray-600">（已预填，可根据需求修改）</span>
+                                    </label>
+                                    <textarea
+                                        id="aiPromptTemplate"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 resize-none font-mono text-xs"
+                                        rows="12"
+                                    >${this.getDefaultAIPrompt(template)}</textarea>
+                                    <p class="text-xs text-gray-500 mt-2">
+                                        💡 可用变量：{task_description}, {reference_answer}, {model_output}, {dimensions_list}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-between gap-3">
+                            <button onclick="window.reportManager.goToStep(1)" class="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium">
+                                ← 上一步
+                            </button>
+                            <button id="step2NextBtn" class="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium shadow-lg">
+                                下一步：开始评分 →
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            getDefaultAIPrompt(template) {
+                // 生成维度列表文本
+                const dimensions = template ? template.dimensions.map((d, i) =>
+                    `${i+1}. ${d.name} (${d.scoreRange.min}-${d.scoreRange.max}分)${d.description ? ': ' + d.description : ''}`
+                ).join('\n') : '';
+
+                // 生成JSON格式示例 - 使用维度的真实名称作为键
+                const jsonExample = template ?
+                    '{\n' +
+                    template.dimensions.map(d => `  "${d.name}": ${d.scoreRange.max}`).join(',\n') +
+                    ',\n  "reasoning": "简要说明评分理由（50字以内）"\n}'
+                    :
+                    '{\n  "dimension_1": score1,\n  "dimension_2": score2,\n  "reasoning": "简要说明评分理由（50字以内）"\n}';
+
+                return `你是一位专业的AI模型评测专家。请根据以下标准对模型输出进行多维度评分。
+
+【任务描述】
+{task_description}
+
+【参考答案】
+{reference_answer}
+
+【模型输出】
+{model_output}
+
+【评分维度】
+${dimensions || '{dimensions_list}'}
+
+请严格按照以下JSON格式返回评分结果（**必须使用维度名称作为键**）：
+${jsonExample}
+
+评分要求：
+1. 客观公正，基于参考答案和任务要求
+2. 每个维度独立评分
+3. 分数必须在规定范围内
+4. 提供简短的评分理由
+5. **重要**: JSON的键必须是维度名称（如上面示例所示），不要使用dimension_1、dimension_2等占位符`;
+            }
+
+            renderStep3() {
+                const evaluation = this.currentReport.evaluation || {};
+                const templateId = evaluation.templateId;
+
+                if (!templateId) {
+                    return `<div class="text-center py-12">
+                        <p class="text-gray-600">请先完成步骤1：选择评测模板</p>
+                        <button onclick="window.reportManager.goToStep(1)" class="mt-4 btn-primary px-6 py-3 rounded-xl">
+                            返回步骤1
+                        </button>
+                    </div>`;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+                const scores = evaluation.scores || {};
+
+                // 收集所有需要评分的执行项（executions或steps）
+                const scoringItems = this.collectScoringItems();
+                const totalItems = scoringItems.length;
+                const totalCells = totalItems * template.dimensions.length;
+
+                // 计算评分进度（基于executionId/stepId）
+                let scoredItems = 0;
+                let scoredCells = 0;
+                scoringItems.forEach(item => {
+                    const itemScores = scores[item.id] || {};
+                    const scoredDims = template.dimensions.filter(dim => itemScores[dim.id]).length;
+                    scoredCells += scoredDims;
+                    if (scoredDims === template.dimensions.length) {
+                        scoredItems++;
+                    }
+                });
+
+                return `
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-semibold text-gray-800">步骤 3：执行评分</h3>
+                            <div class="text-sm text-gray-600">
+                                进度: ${scoredItems}/${totalItems} 输出已评分
+                                <span class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded">${(scoredCells/totalCells*100).toFixed(0)}%</span>
+                            </div>
+                        </div>
+
+                        ${evaluation.aiEnabled ? `
+                            <div class="p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border-2 border-blue-200">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-semibold text-gray-800 mb-1">🤖 AI批量评分</p>
+                                        <p class="text-xs text-gray-600">对所有未评分的输出进行AI自动评分</p>
+                                    </div>
+                                    <button onclick="window.reportManager.batchAIScoringStep3()"
+                                        class="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:from-blue-600 hover:to-purple-600 font-medium shadow-lg">
+                                        🚀 批量AI评分
+                                    </button>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- 按模型分组显示评分项 -->
+                        <div class="space-y-4">
+                            ${this.renderScoringItemsByModel(scoringItems, template, scores, evaluation)}
+                        </div>
+
+                        <div class="flex justify-between gap-3">
+                            <button onclick="window.reportManager.goToStep(2)" class="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium">
+                                ← 上一步
+                            </button>
+                            <button id="step3NextBtn" class="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium shadow-lg">
+                                下一步：配置权重 →
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 收集所有需要评分的项目（executions或steps）
+            collectScoringItems() {
+                const items = [];
+                const mode = this.currentReport.mode;
+
+                if (mode === 'single') {
+                    // 单任务模式：遍历所有模型的所有executions
+                    this.currentReport.results.forEach((mr, modelIdx) => {
+                        const model = mr.model;
+                        const executions = mr.executions || [];
+
+                        executions.forEach((exec, execIdx) => {
+                            items.push({
+                                id: exec.executionId || `exec_${modelIdx}_${execIdx}`,
+                                type: 'execution',
+                                modelId: model.id || `model_${modelIdx}`,
+                                modelName: model.modelName,
+                                executionIndex: exec.executionIndex !== undefined ? exec.executionIndex : execIdx,
+                                content: exec.content,
+                                success: exec.success,
+                                error: exec.error,
+                                responseTime: exec.responseTime,
+                                tokensUsed: exec.tokensUsed
+                            });
+                        });
+                    });
+                } else if (mode === 'chain') {
+                    // 任务链模式：遍历所有模型的所有steps
+                    this.currentReport.results.forEach((mr, modelIdx) => {
+                        const model = mr.model;
+                        const steps = mr.steps || [];
+
+                        steps.forEach((step, stepIdx) => {
+                            items.push({
+                                id: step.stepId || `step_${modelIdx}_${stepIdx}`,
+                                type: 'step',
+                                modelId: model.id || `model_${modelIdx}`,
+                                modelName: model.modelName,
+                                stepIndex: step.stepIndex !== undefined ? step.stepIndex : stepIdx,
+                                taskName: step.task?.name || `任务${stepIdx + 1}`,
+                                content: step.result?.content,
+                                success: step.result?.success,
+                                error: step.result?.error,
+                                responseTime: step.result?.responseTime,
+                                tokensUsed: step.result?.tokensUsed
+                            });
+                        });
+                    });
+                }
+
+                return items;
+            }
+
+            // 按模型分组渲染评分项
+            renderScoringItemsByModel(scoringItems, template, scores, evaluation) {
+                // 按模型分组
+                const groupedByModel = {};
+                scoringItems.forEach(item => {
+                    if (!groupedByModel[item.modelId]) {
+                        groupedByModel[item.modelId] = {
+                            modelName: item.modelName,
+                            items: []
+                        };
+                    }
+                    groupedByModel[item.modelId].items.push(item);
+                });
+
+                return Object.entries(groupedByModel).map(([modelId, group]) => {
+                    const modelItems = group.items;
+                    const scoredCount = modelItems.filter(item => {
+                        const itemScores = scores[item.id] || {};
+                        return template.dimensions.every(dim => itemScores[dim.id]);
+                    }).length;
+
+                    return `
+                        <div class="p-5 bg-white rounded-xl border-2 border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-3">
+                                    <h4 class="text-lg font-bold text-gray-800">${group.modelName}</h4>
+                                    <span class="text-xs px-3 py-1 rounded-full ${
+                                        scoredCount === modelItems.length ? 'bg-green-100 text-green-700' :
+                                        scoredCount > 0 ? 'bg-yellow-100 text-yellow-700' :
+                                        'bg-gray-100 text-gray-600'
+                                    }">
+                                        ${scoredCount}/${modelItems.length} 已评分
+                                    </span>
+                                </div>
+                                ${evaluation.aiEnabled ? `
+                                    <button onclick="window.reportManager.scoreModelAllExecutionsStep3('${modelId}')"
+                                        class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium">
+                                        🤖 AI评分此模型所有输出
+                                    </button>
+                                ` : ''}
+                            </div>
+
+                            <!-- 折叠/展开控制 -->
+                            <button onclick="window.reportManager.toggleModelExpand('${modelId}')"
+                                class="w-full mb-3 px-4 py-2 text-sm text-left bg-gray-50 hover:bg-gray-100 rounded-lg flex items-center justify-between">
+                                <span>展开/折叠 ${modelItems.length} 个输出</span>
+                                <span id="expand-icon-${modelId}">▼</span>
+                            </button>
+
+                            <div id="model-items-${modelId}" class="space-y-4" style="display: block;">
+                                ${modelItems.map(item => this.renderScoringItemCard(item, template, scores, evaluation)).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // 渲染单个评分项卡片
+            renderScoringItemCard(item, template, scores, evaluation) {
+                const itemScores = scores[item.id] || {};
+                const scoredDims = template.dimensions.filter(dim => itemScores[dim.id]).length;
+                const isComplete = scoredDims === template.dimensions.length;
+
+                const displayLabel = item.type === 'execution'
+                    ? `执行 #${item.executionIndex + 1}`
+                    : `步骤 #${item.stepIndex + 1}: ${item.taskName}`;
+
+                return `
+                    <div class="p-4 bg-gray-50 rounded-lg border ${isComplete ? 'border-green-300' : 'border-gray-300'}">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-base font-medium text-gray-700">${displayLabel}</span>
+                                ${isComplete ? '<span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">✓ 已评分</span>' : ''}
+                            </div>
+                            ${evaluation.aiEnabled ? `
+                                <button onclick="window.reportManager.scoreSingleItemStep3('${item.id}')"
+                                    class="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600">
+                                    🤖 AI评分
+                                </button>
+                            ` : ''}
+                        </div>
+
+                        <!-- 输出内容预览 -->
+                        <div class="mb-3 p-3 bg-white rounded border border-gray-200">
+                            ${item.success ? `
+                                <p class="text-xs text-gray-700 line-clamp-3">${this.escapeHtml(item.content || '')}</p>
+                            ` : `
+                                <p class="text-xs text-red-600">❌ ${this.escapeHtml(item.error || '执行失败')}</p>
+                            `}
+                        </div>
+
+                        <!-- 评分输入 -->
+                        <div class="grid grid-cols-2 gap-2">
+                            ${template.dimensions.map(dim => {
+                                const score = itemScores[dim.id] || '';
+                                return `
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">
+                                            ${dim.name} (${dim.scoreRange.min}-${dim.scoreRange.max})
+                                        </label>
+                                        <input type="number"
+                                            class="score-input-step3 w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            data-item-id="${item.id}"
+                                            data-dimension-id="${dim.id}"
+                                            min="${dim.scoreRange.min}"
+                                            max="${dim.scoreRange.max}"
+                                            step="${dim.scoreRange.step || 1}"
+                                            value="${score}"
+                                            placeholder="请评分">
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+
+                        ${this.aiScoringReasons[item.id] ? `
+                            <div class="mt-3 p-2 bg-blue-50 rounded border border-blue-200">
+                                <p class="text-xs font-semibold text-blue-900 mb-1">💡 AI评分理由：</p>
+                                <p class="text-xs text-blue-800">${this.escapeHtml(this.aiScoringReasons[item.id])}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            // 切换模型展开/折叠
+            toggleModelExpand(modelId) {
+                const container = document.getElementById(`model-items-${modelId}`);
+                const icon = document.getElementById(`expand-icon-${modelId}`);
+                if (container && icon) {
+                    const isExpanded = container.style.display !== 'none';
+                    container.style.display = isExpanded ? 'none' : 'block';
+                    icon.textContent = isExpanded ? '▶' : '▼';
+                }
+            }
+
+            renderStep4() {
+                const evaluation = this.currentReport.evaluation || {};
+                const templateId = evaluation.templateId;
+
+                if (!templateId) {
+                    return `<div class="text-center py-12">
+                        <p class="text-gray-600">请先完成前面的步骤</p>
+                    </div>`;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+                const weights = evaluation.weights || {};
+                const defaultWeight = (1 / template.dimensions.length).toFixed(3);
+
+                return `
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-800">步骤 4：权重配置与计算</h3>
+
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200">
+                            <h4 class="font-semibold text-gray-800 mb-4">指标权重配置</h4>
+                            <div class="space-y-4">
+                                ${template.dimensions.map(dim => {
+                                    const weight = weights[dim.id] || defaultWeight;
+                                    return `
+                                        <div>
+                                            <div class="flex justify-between items-center mb-2">
+                                                <span class="text-sm font-medium text-gray-700">${dim.name}</span>
+                                                <input type="number"
+                                                    id="weight-input-${dim.id}"
+                                                    class="weight-input px-2 py-1 w-20 border border-gray-300 rounded text-sm text-right"
+                                                    data-dimension-id="${dim.id}"
+                                                    value="${weight}"
+                                                    min="0"
+                                                    max="1"
+                                                    step="0.01">
+                                            </div>
+                                            <input type="range"
+                                                id="weight-slider-${dim.id}"
+                                                class="weight-slider-step4 w-full"
+                                                data-dimension-id="${dim.id}"
+                                                value="${weight}"
+                                                min="0"
+                                                max="1"
+                                                step="0.01">
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                            <p class="text-xs text-gray-600 mt-4">
+                                💡 输入数字后点击其他地方，权重会自动归一化为总和1.0
+                            </p>
+                        </div>
+
+                        <div class="flex justify-between gap-3">
+                            <button onclick="window.reportManager.goToStep(3)" class="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium">
+                                ← 上一步
+                            </button>
+                            <button id="calculateFinalBtn" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 font-medium shadow-lg">
+                                📊 计算综合得分
+                            </button>
+                        </div>
+
+                        <div id="finalResults" class="mt-6" style="display: none;">
+                            <!-- 结果将在这里显示 -->
+                        </div>
+                    </div>
+                `;
+            }
+
+            attachStepEventListeners() {
+                // Step 1 事件
+                const templateSelect = document.getElementById('templateSelect');
+                if (templateSelect) {
+                    templateSelect.addEventListener('change', (e) => {
+                        const templateId = e.target.value;
+                        if (!this.currentReport.evaluation) {
+                            this.currentReport.evaluation = {};
+                        }
+                        this.currentReport.evaluation.templateId = templateId;
+
+                        // 🔧 修复：同时保存template的dimensions和name
+                        if (templateId) {
+                            const template = Storage.getEvaluationTemplate(templateId);
+                            if (template) {
+                                this.currentReport.evaluation.dimensions = template.dimensions;
+                                this.currentReport.evaluation.templateName = template.name;
+                                console.log('[Step1] 已保存模板信息:', {
+                                    templateId,
+                                    templateName: template.name,
+                                    dimensions: template.dimensions
+                                });
+                            }
+                        }
+
+                        // 显示模板预览
+                        const preview = document.getElementById('templatePreview');
+                        const nextBtn = document.getElementById('step1NextBtn');
+                        if (templateId && preview && nextBtn) {
+                            const template = Storage.getEvaluationTemplate(templateId);
+                            preview.style.display = 'block';
+                            preview.innerHTML = `
+                                <div class="p-4 bg-gray-50 rounded-lg">
+                                    <p class="text-sm font-medium text-gray-800 mb-2">评测维度：</p>
+                                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                        ${template.dimensions.map(d =>
+                                            `<li>${d.name} (${d.scoreRange.min}-${d.scoreRange.max}分)</li>`
+                                        ).join('')}
+                                    </ul>
+                                </div>
+                            `;
+                            nextBtn.disabled = false;
+                        }
+                    });
+                }
+
+                const step1NextBtn = document.getElementById('step1NextBtn');
+                if (step1NextBtn) {
+                    step1NextBtn.addEventListener('click', () => this.goToStep(2));
+                }
+
+                // Step 2 事件
+                const enableAICheckbox = document.getElementById('enableAIScoring');
+                if (enableAICheckbox) {
+                    enableAICheckbox.addEventListener('change', (e) => {
+                        const panel = document.getElementById('aiConfigPanel');
+                        if (panel) {
+                            panel.style.display = e.target.checked ? 'block' : 'none';
+                        }
+                        if (!this.currentReport.evaluation) {
+                            this.currentReport.evaluation = {};
+                        }
+                        this.currentReport.evaluation.aiEnabled = e.target.checked;
+                    });
+                }
+
+                const step2NextBtn = document.getElementById('step2NextBtn');
+                if (step2NextBtn) {
+                    step2NextBtn.addEventListener('click', () => {
+                        // 保存AI配置
+                        if (!this.currentReport.evaluation) {
+                            this.currentReport.evaluation = {};
+                        }
+                        const refAnswer = document.getElementById('referenceAnswerInput');
+                        const judgeModel = document.getElementById('judgeModelSelect');
+                        const aiPrompt = document.getElementById('aiPromptTemplate');
+
+                        if (refAnswer) this.currentReport.evaluation.referenceAnswer = refAnswer.value;
+                        if (judgeModel) this.currentReport.evaluation.judgeModelId = judgeModel.value;
+                        if (aiPrompt) this.currentReport.evaluation.aiPromptTemplate = aiPrompt.value;
+
+                        this.goToStep(3);
+                    });
+                }
+
+                // Step 3 事件
+                const step3NextBtn = document.getElementById('step3NextBtn');
+                if (step3NextBtn) {
+                    step3NextBtn.addEventListener('click', () => {
+                        console.log('[Step3] 点击下一步，开始保存评分...');
+                        this.saveStep3Scores();
+                        console.log('[Step3] 评分保存完成，跳转到Step4');
+                        this.goToStep(4);
+                    });
+                }
+
+                // Step 4 事件 - 权重归一化
+                document.querySelectorAll('.weight-input').forEach(input => {
+                    input.addEventListener('blur', () => this.normalizeWeights());
+                    input.addEventListener('input', (e) => {
+                        const dimId = e.target.dataset.dimensionId;
+                        const slider = document.getElementById(`weight-slider-${dimId}`);
+                        if (slider) slider.value = e.target.value;
+                    });
+                });
+
+                document.querySelectorAll('.weight-slider-step4').forEach(slider => {
+                    slider.addEventListener('input', (e) => {
+                        const dimId = e.target.dataset.dimensionId;
+                        const input = document.getElementById(`weight-input-${dimId}`);
+                        if (input) input.value = e.target.value;
+                    });
+                    slider.addEventListener('change', () => this.normalizeWeights());
+                });
+
+                const calculateFinalBtn = document.getElementById('calculateFinalBtn');
+                if (calculateFinalBtn) {
+                    calculateFinalBtn.addEventListener('click', () => this.calculateFinalScoresStep4());
+                }
+            }
+
+            saveStep3Scores() {
+                console.log('[保存评分] 开始收集评分数据...');
+
+                const scores = {};
+                const inputs = document.querySelectorAll('.score-input-step3');
+
+                console.log('[保存评分] 找到评分输入框数量:', inputs.length);
+
+                inputs.forEach((input, idx) => {
+                    const itemId = input.dataset.itemId;  // executionId or stepId
+                    const dimensionId = input.dataset.dimensionId;
+                    const score = parseFloat(input.value);
+
+                    console.log(`[保存评分] 输入框 #${idx}: itemId=${itemId}, dimId=${dimensionId}, value="${input.value}", parsed=${score}`);
+
+                    if (itemId && dimensionId && !isNaN(score)) {
+                        if (!scores[itemId]) scores[itemId] = {};
+                        scores[itemId][dimensionId] = score;
+                    } else {
+                        console.warn(`[保存评分] ⚠️ 输入框 #${idx} 数据不完整或分数无效`);
+                    }
+                });
+
+                console.log('[保存评分] 收集到的评分数据:', scores);
+
+                if (Object.keys(scores).length === 0) {
+                    console.error('[保存评分] ❌ 没有收集到任何评分数据！');
+                    showToast('请先输入评分', 'error');
+                    return;
+                }
+
+                if (!this.currentReport.evaluation) {
+                    this.currentReport.evaluation = {};
+                }
+                this.currentReport.evaluation.scores = scores;
+
+                // 保存到localStorage
+                const history = Storage.getHistory();
+                const reportIndex = history.findIndex(h => h.id === this.currentReport.id);
+                if (reportIndex !== -1) {
+                    history[reportIndex].evaluation = this.currentReport.evaluation;
+                    localStorage.setItem('evallite_history', JSON.stringify(history));
+                    console.log('[保存评分] ✅ 已保存到localStorage');
+                } else {
+                    console.error('[保存评分] ❌ 未找到对应的历史记录');
+                }
+
+                showToast('评分已保存', 'success');
+            }
+
+            normalizeWeights() {
+                const inputs = document.querySelectorAll('.weight-input');
+                let total = 0;
+                const values = [];
+
+                inputs.forEach(input => {
+                    const val = parseFloat(input.value) || 0;
+                    values.push({ input, value: val, dimId: input.dataset.dimensionId });
+                    total += val;
+                });
+
+                if (total === 0) return;
+
+                values.forEach(({ input, value, dimId }) => {
+                    const normalized = (value / total).toFixed(3);
+                    input.value = normalized;
+                    const slider = document.getElementById(`weight-slider-${dimId}`);
+                    if (slider) slider.value = normalized;
+                });
+
+                showToast('权重已自动归一化', 'info');
+            }
+
+            // AI评分单个项目（execution或step）
+            async scoreSingleItemStep3(itemId) {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.aiEnabled) return;
+
+                const template = Storage.getEvaluationTemplate(evaluation.templateId);
+                const judgeModelId = evaluation.judgeModelId;
+                const judgeModel = Storage.getModels().find(m => m.id === judgeModelId);
+
+                if (!judgeModel) {
+                    showToast('请先配置评委模型', 'error');
+                    return;
+                }
+
+                // 找到对应的item
+                const scoringItems = this.collectScoringItems();
+                const item = scoringItems.find(i => i.id === itemId);
+                if (!item || !item.content) {
+                    showToast('未找到输出内容', 'error');
+                    return;
+                }
+
+                showToast(`正在为 ${item.modelName} 的输出进行AI评分...`, 'info');
+
+                try {
+                    const taskDescription = this.currentReport.mode === 'single'
+                        ? this.currentReport.task.userPrompt
+                        : item.taskName || '任务链步骤';
+
+                    const prompt = (evaluation.aiPromptTemplate || this.getDefaultAIPrompt(template))
+                        .replace(/{task_description}/g, taskDescription)
+                        .replace(/{model_output}/g, item.content)
+                        .replace(/{reference_answer}/g, evaluation.referenceAnswer || '');
+
+                    const response = await callModelAPI(
+                        judgeModel.provider,
+                        judgeModel.modelId,
+                        judgeModel.apiKey,
+                        [{ role: 'user', content: prompt }]
+                    );
+
+                    const { scores, reasoning } = this.parseAIScoreResponse(response.content, template);
+
+                    // 保存评分理由
+                    if (reasoning) {
+                        this.aiScoringReasons[itemId] = reasoning;
+                    }
+
+                    // 保存评分到evaluation
+                    if (!evaluation.scores) evaluation.scores = {};
+                    if (!evaluation.scores[itemId]) evaluation.scores[itemId] = {};
+                    Object.assign(evaluation.scores[itemId], scores);
+
+                    // 更新输入框
+                    template.dimensions.forEach(dim => {
+                        const input = document.querySelector(`.score-input-step3[data-item-id="${itemId}"][data-dimension-id="${dim.id}"]`);
+                        if (input && scores[dim.id] !== undefined) {
+                            input.value = scores[dim.id];
+                        }
+                    });
+
+                    showToast('AI评分完成', 'success');
+
+                } catch (error) {
+                    console.error('AI评分失败:', error);
+                    showToast(`AI评分失败: ${error.message}`, 'error');
+                }
+            }
+
+            // AI评分某个模型的所有输出
+            async scoreModelAllExecutionsStep3(modelId) {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.aiEnabled) return;
+
+                const template = Storage.getEvaluationTemplate(evaluation.templateId);
+                const judgeModel = Storage.getModels().find(m => m.id === evaluation.judgeModelId);
+
+                if (!judgeModel) {
+                    showToast('请先配置评委模型', 'error');
+                    return;
+                }
+
+                // 找到该模型的所有items
+                const scoringItems = this.collectScoringItems();
+                const modelItems = scoringItems.filter(item => item.modelId === modelId);
+
+                if (modelItems.length === 0) {
+                    showToast('未找到该模型的输出', 'error');
+                    return;
+                }
+
+                showToast(`开始批量AI评分 ${modelItems[0].modelName} 的 ${modelItems.length} 个输出...`, 'info');
+
+                let successCount = 0;
+
+                for (const item of modelItems) {
+                    if (!item.content) continue;
+
+                    try {
+                        const taskDescription = this.currentReport.mode === 'single'
+                            ? this.currentReport.task.userPrompt
+                            : item.taskName || '任务链步骤';
+
+                        const prompt = (evaluation.aiPromptTemplate || this.getDefaultAIPrompt(template))
+                            .replace(/{task_description}/g, taskDescription)
+                            .replace(/{model_output}/g, item.content)
+                            .replace(/{reference_answer}/g, evaluation.referenceAnswer || '');
+
+                        const response = await callModelAPI(
+                            judgeModel.provider,
+                            judgeModel.modelId,
+                            judgeModel.apiKey,
+                            [{ role: 'user', content: prompt }]
+                        );
+
+                        const { scores, reasoning } = this.parseAIScoreResponse(response.content, template);
+
+                        // 保存评分
+                        if (!evaluation.scores) evaluation.scores = {};
+                        if (!evaluation.scores[item.id]) evaluation.scores[item.id] = {};
+                        Object.assign(evaluation.scores[item.id], scores);
+
+                        if (reasoning) {
+                            this.aiScoringReasons[item.id] = reasoning;
+                        }
+
+                        // 更新输入框
+                        template.dimensions.forEach(dim => {
+                            const input = document.querySelector(`.score-input-step3[data-item-id="${item.id}"][data-dimension-id="${dim.id}"]`);
+                            if (input && scores[dim.id] !== undefined) {
+                                input.value = scores[dim.id];
+                            }
+                        });
+
+                        successCount++;
+
+                    } catch (error) {
+                        console.error(`AI评分失败 (${item.id}):`, error);
+                    }
+                }
+
+                showToast(`AI评分完成：成功 ${successCount}/${modelItems.length}`, 'success');
+                this.saveStep3Scores(); // 自动保存
+            }
+
+            // 批量AI评分所有模型的所有输出
+            async batchAIScoringStep3() {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.aiEnabled) return;
+
+                const template = Storage.getEvaluationTemplate(evaluation.templateId);
+                const judgeModel = Storage.getModels().find(m => m.id === evaluation.judgeModelId);
+
+                if (!judgeModel) {
+                    showToast('请先配置评委模型', 'error');
+                    return;
+                }
+
+                const scoringItems = this.collectScoringItems();
+                showToast(`开始批量AI评分 ${scoringItems.length} 个输出...`, 'info');
+
+                let successCount = 0;
+
+                for (const item of scoringItems) {
+                    if (!item.content) continue;
+
+                    try {
+                        const taskDescription = this.currentReport.mode === 'single'
+                            ? this.currentReport.task.userPrompt
+                            : item.taskName || '任务链步骤';
+
+                        const prompt = (evaluation.aiPromptTemplate || this.getDefaultAIPrompt(template))
+                            .replace(/{task_description}/g, taskDescription)
+                            .replace(/{model_output}/g, item.content)
+                            .replace(/{reference_answer}/g, evaluation.referenceAnswer || '');
+
+                        const response = await callModelAPI(
+                            judgeModel.provider,
+                            judgeModel.modelId,
+                            judgeModel.apiKey,
+                            [{ role: 'user', content: prompt }]
+                        );
+
+                        const { scores, reasoning } = this.parseAIScoreResponse(response.content, template);
+
+                        // 保存评分
+                        if (!evaluation.scores) evaluation.scores = {};
+                        if (!evaluation.scores[item.id]) evaluation.scores[item.id] = {};
+                        Object.assign(evaluation.scores[item.id], scores);
+
+                        if (reasoning) {
+                            this.aiScoringReasons[item.id] = reasoning;
+                        }
+
+                        // 更新输入框
+                        template.dimensions.forEach(dim => {
+                            const input = document.querySelector(`.score-input-step3[data-item-id="${item.id}"][data-dimension-id="${dim.id}"]`);
+                            if (input && scores[dim.id] !== undefined) {
+                                input.value = scores[dim.id];
+                            }
+                        });
+
+                        successCount++;
+
+                    } catch (error) {
+                        console.error(`AI评分失败 (${item.id}):`, error);
+                    }
+                }
+
+                showToast(`批量AI评分完成：成功 ${successCount}/${scoringItems.length}`, 'success');
+                this.saveStep3Scores(); // 自动保存
+            }
+
+            // 解析AI评分响应
+            parseAIScoreResponse(content, template) {
+                let scores = {};
+                let reasoning = '';
+
+                try {
+                    const data = JSON.parse(content);
+                    reasoning = data.reasoning || '';
+
+                    template.dimensions.forEach((dim, idx) => {
+                        let score = 0;
+
+                        // 尝试多种匹配策略
+                        if (data[dim.name] !== undefined) {
+                            score = parseFloat(data[dim.name]);
+                        } else if (data[dim.id] !== undefined) {
+                            score = parseFloat(data[dim.id]);
+                        } else if (data[idx] !== undefined) {
+                            score = parseFloat(data[idx]);
+                        } else if (data[`dimension_${idx + 1}`] !== undefined) {
+                            score = parseFloat(data[`dimension_${idx + 1}`]);
+                        }
+
+                        scores[dim.id] = score || 0;
+                    });
+                } catch (parseError) {
+                    // JSON解析失败，尝试提取数字
+                    const numbers = content.match(/\d+(\.\d+)?/g) || [];
+                    template.dimensions.forEach((dim, idx) => {
+                        scores[dim.id] = idx < numbers.length ? parseFloat(numbers[idx]) : 0;
+                    });
+                }
+
+                return { scores, reasoning };
+            }
+
+            calculateFinalScoresStep4() {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.scores) {
+                    showToast('请先完成评分', 'error');
+                    return;
+                }
+
+                const template = Storage.getEvaluationTemplate(evaluation.templateId);
+
+                // 收集权重
+                const weights = {};
+                document.querySelectorAll('.weight-input').forEach(input => {
+                    weights[input.dataset.dimensionId] = parseFloat(input.value) || 0;
+                });
+
+                evaluation.weights = weights;
+
+                // 计算综合得分（复用原有逻辑）
+                this.calculateFinalScores();
+
+                // 计算完成后，显示成功提示并跳转到可视化分析
+                setTimeout(() => {
+                    showToast('正在跳转到可视化分析...', 'info');
+                    this.switchTab('visualization');
+                }, 1000);
+            }
+
+            attachScoringEventListeners() {
+                // 新的步骤化流程使用 attachStepEventListeners
+                this.attachStepEventListeners();
+            }
+
+            loadTemplate(templateId) {
+                if (!templateId) {
+                    document.getElementById('dimensionsList').innerHTML = '<p class="text-gray-500 text-sm">请先选择评测模板</p>';
+                    document.getElementById('aiAutoScoreBtn').style.display = 'none';
+                    return;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+                if (!template) return;
+
+                // 显示AI自动评分按钮(如果模板支持)
+                const aiScoreBtn = document.getElementById('aiAutoScoreBtn');
+                if (aiScoreBtn && template.aiScoringConfig?.enabled) {
+                    aiScoreBtn.style.display = 'block';
+                }
+
+                const evaluation = this.currentReport.evaluation || { scores: {} };
+
+                // 渲染评分维度
+                const dimensionsList = document.getElementById('dimensionsList');
+                dimensionsList.innerHTML = `
+                    <div class="space-y-4">
+                        ${this.currentReport.results.map((modelResult, modelIdx) => {
+                            const modelId = modelResult.model.id || `model_${modelIdx}`;
+                            const modelScores = evaluation.scores?.[modelId];
+                            const isScored = modelScores && Object.keys(modelScores).length > 0;
+
+                            return `
+                                <div class="p-4 bg-white border-2 ${isScored ? 'border-green-300' : 'border-gray-200'} rounded-xl">
+                                    <div class="flex justify-between items-start mb-3">
+                                        <h4 class="font-semibold text-gray-800">
+                                            ${modelResult.model.modelName}
+                                            ${isScored ? '<span class="ml-2 text-xs px-2 py-1 bg-green-100 text-green-700 rounded">✓ 已评分</span>' : ''}
+                                        </h4>
+                                        ${template.aiScoringConfig?.enabled ? `
+                                            <button
+                                                onclick="window.reportManager.scoreSingleModel('${modelId}', ${modelIdx})"
+                                                class="text-xs px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                                                🤖 AI评分
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                    <div class="space-y-3">
+                                        ${template.dimensions.map(dim => {
+                                            const currentScore = evaluation.scores?.[modelId]?.[dim.id] || 0;
+                                            return `
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                        ${dim.name} (${dim.scoreRange.min}-${dim.scoreRange.max})
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        data-model-id="${modelId}"
+                                                        data-dimension-id="${dim.id}"
+                                                        min="${dim.scoreRange.min}"
+                                                        max="${dim.scoreRange.max}"
+                                                        step="${dim.scoreRange.step || 1}"
+                                                        value="${currentScore}"
+                                                        class="score-input w-full px-3 py-2 border border-gray-200 rounded-lg"
+                                                    >
+                                                    ${dim.description ? `<p class="text-xs text-gray-500 mt-1">${dim.description}</p>` : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+
+                // 显示权重配置
+                this.renderWeightsConfig(template.dimensions);
+            }
+
+            renderWeightsConfig(dimensions) {
+                const weightsConfig = document.getElementById('weightsConfig');
+                const weightsSliders = document.getElementById('weightsSliders');
+
+                weightsConfig.style.display = 'block';
+
+                const evaluation = this.currentReport.evaluation || {};
+                const weights = evaluation.weights || {};
+
+                // 默认均分权重
+                const defaultWeight = (100 / dimensions.length).toFixed(0);
+
+                weightsSliders.innerHTML = dimensions.map(dim => {
+                    const weight = weights[dim.id] || defaultWeight;
+                    return `
+                        <div class="mb-3">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-medium text-gray-700">${dim.name}</span>
+                                <span class="text-sm font-semibold text-purple-600"><span id="weight-${dim.id}-value">${weight}</span>%</span>
+                            </div>
+                            <input
+                                type="range"
+                                id="weight-${dim.id}"
+                                data-dimension-id="${dim.id}"
+                                class="weight-slider"
+                                min="0"
+                                max="100"
+                                value="${weight}"
+                            >
+                        </div>
+                    `;
+                }).join('');
+
+                // 添加权重滑块事件
+                dimensions.forEach(dim => {
+                    const slider = document.getElementById(`weight-${dim.id}`);
+                    if (slider) {
+                        slider.addEventListener('input', (e) => {
+                            document.getElementById(`weight-${dim.id}-value`).textContent = e.target.value;
+                        });
+                    }
+                });
+            }
+
+            async performAIScoring() {
+                const templateId = document.getElementById('templateSelect')?.value;
+                if (!templateId) {
+                    showToast('请先选择评测模板', 'error');
+                    return;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+                if (!template || !template.aiScoringConfig?.enabled) {
+                    showToast('该模板未配置AI评分', 'error');
+                    return;
+                }
+
+                // 获取评委模型
+                const judgeModelId = template.aiScoringConfig.judgeModelId;
+                const allModels = Storage.getModels();
+                const judgeModel = allModels.find(m => m.id === judgeModelId);
+
+                if (!judgeModel) {
+                    showToast('评委模型未找到', 'error');
+                    return;
+                }
+
+                // 获取参考答案
+                const referenceAnswer = document.getElementById('referenceAnswerInput')?.value || '';
+
+                showToast('开始AI自动评分...', 'info');
+
+                const scores = {};
+
+                // 对每个被测模型进行评分
+                for (const [idx, modelResult] of this.currentReport.results.entries()) {
+                    const modelId = modelResult.model.id || `model_${idx}`;
+                    const modelOutput = modelResult.executions[0].content;
+
+                    // 构建评分prompt
+                    const promptTemplate = template.aiScoringConfig.promptTemplate || '';
+                    const evaluationPrompt = promptTemplate
+                        .replace(/{task_description}/g, this.currentReport.task.userPrompt)
+                        .replace(/{model_output}/g, modelOutput)
+                        .replace(/{reference_answer}/g, referenceAnswer);
+
+                    try {
+                        // 调用评委模型进行评分
+                        const response = await callModelAPI(
+                            judgeModel.provider,
+                            judgeModel.modelId,
+                            judgeModel.apiKey,
+                            [{ role: 'user', content: evaluationPrompt }]
+                        );
+
+                        // 尝试解析JSON格式的评分结果
+                        try {
+                            const scoreData = JSON.parse(response.content);
+                            scores[modelId] = {};
+
+                            // 将评分映射到维度
+                            template.dimensions.forEach((dim, dimIdx) => {
+                                // 尝试从多种可能的字段获取分数
+                                const score = scoreData[dim.name] ||
+                                             scoreData[dim.id] ||
+                                             scoreData[dimIdx] ||
+                                             0;
+                                scores[modelId][dim.id] = parseFloat(score) || 0;
+                            });
+
+                        } catch (parseError) {
+                            // 如果无法解析JSON,尝试提取数字
+                            const numbers = response.content.match(/\d+(\.\d+)?/g) || [];
+                            scores[modelId] = {};
+
+                            template.dimensions.forEach((dim, dimIdx) => {
+                                scores[modelId][dim.id] = dimIdx < numbers.length
+                                    ? parseFloat(numbers[dimIdx])
+                                    : 0;
+                            });
+                        }
+
+                    } catch (error) {
+                        console.error(`AI评分失败 (${modelResult.model.modelName}):`, error);
+                        scores[modelId] = {};
+                        template.dimensions.forEach(dim => {
+                            scores[modelId][dim.id] = 0;
+                        });
+                    }
+                }
+
+                // 更新UI中的评分输入框
+                document.querySelectorAll('.score-input').forEach(input => {
+                    const modelId = input.dataset.modelId;
+                    const dimensionId = input.dataset.dimensionId;
+
+                    if (scores[modelId] && scores[modelId][dimensionId] !== undefined) {
+                        input.value = scores[modelId][dimensionId];
+                    }
+                });
+
+                showToast('AI自动评分完成', 'success');
+            }
+
+            async scoreSingleModel(modelId, modelIdx) {
+                const templateId = document.getElementById('templateSelect')?.value;
+                if (!templateId) {
+                    showToast('请先选择评测模板', 'error');
+                    return;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+                if (!template || !template.aiScoringConfig?.enabled) {
+                    showToast('该模板未配置AI评分', 'error');
+                    return;
+                }
+
+                const judgeModelId = template.aiScoringConfig.judgeModelId;
+                const allModels = Storage.getModels();
+                const judgeModel = allModels.find(m => m.id === judgeModelId);
+
+                if (!judgeModel) {
+                    showToast('评委模型未找到', 'error');
+                    return;
+                }
+
+                const referenceAnswer = document.getElementById('referenceAnswerInput')?.value || '';
+                const modelResult = this.currentReport.results[modelIdx];
+                const modelOutput = modelResult.executions[0].content;
+
+                showToast(`正在为 ${modelResult.model.modelName} 进行AI评分...`, 'info');
+
+                const promptTemplate = template.aiScoringConfig.promptTemplate || '';
+                const evaluationPrompt = promptTemplate
+                    .replace(/{task_description}/g, this.currentReport.task.userPrompt)
+                    .replace(/{model_output}/g, modelOutput)
+                    .replace(/{reference_answer}/g, referenceAnswer);
+
+                try {
+                    const response = await callModelAPI(
+                        judgeModel.provider,
+                        judgeModel.modelId,
+                        judgeModel.apiKey,
+                        [{ role: 'user', content: evaluationPrompt }]
+                    );
+
+                    const scores = {};
+
+                    try {
+                        const scoreData = JSON.parse(response.content);
+                        template.dimensions.forEach((dim, dimIdx) => {
+                            const score = scoreData[dim.name] || scoreData[dim.id] || scoreData[dimIdx] || 0;
+                            scores[dim.id] = parseFloat(score) || 0;
+                        });
+                    } catch (parseError) {
+                        const numbers = response.content.match(/\d+(\.\d+)?/g) || [];
+                        template.dimensions.forEach((dim, dimIdx) => {
+                            scores[dim.id] = dimIdx < numbers.length ? parseFloat(numbers[dimIdx]) : 0;
+                        });
+                    }
+
+                    // 更新该模型的评分输入框
+                    document.querySelectorAll(`.score-input[data-model-id="${modelId}"]`).forEach(input => {
+                        const dimensionId = input.dataset.dimensionId;
+                        if (scores[dimensionId] !== undefined) {
+                            input.value = scores[dimensionId];
+                        }
+                    });
+
+                    showToast(`${modelResult.model.modelName} AI评分完成`, 'success');
+
+                } catch (error) {
+                    console.error('AI评分失败:', error);
+                    showToast(`AI评分失败: ${error.message}`, 'error');
+                }
+            }
+
+            saveScores() {
+                const templateId = document.getElementById('templateSelect')?.value;
+                if (!templateId) {
+                    showToast('请先选择评测模板', 'error');
+                    return;
+                }
+
+                const template = Storage.getEvaluationTemplate(templateId);
+
+                // 收集评分
+                const scores = {};
+                document.querySelectorAll('.score-input').forEach(input => {
+                    const modelId = input.dataset.modelId;
+                    const dimensionId = input.dataset.dimensionId;
+                    const score = parseFloat(input.value) || 0;
+
+                    if (!scores[modelId]) scores[modelId] = {};
+                    scores[modelId][dimensionId] = score;
+                });
+
+                // 收集权重
+                const weights = {};
+                template.dimensions.forEach(dim => {
+                    const slider = document.getElementById(`weight-${dim.id}`);
+                    if (slider) {
+                        weights[dim.id] = parseFloat(slider.value) / 100; // 转换为0-1
+                    }
+                });
+
+                // 获取参考答案 (v0.5)
+                const referenceAnswer = document.getElementById('referenceAnswerInput')?.value || '';
+
+                // 计算已评分模型数 (v0.5)
+                const scoredModels = Object.keys(scores).filter(modelId => {
+                    return Object.keys(scores[modelId]).length > 0;
+                }).length;
+                const totalModels = this.currentReport.results.length;
+
+                // 确定评测状态 (v0.5)
+                let status = 'draft';
+                if (scoredModels === totalModels) {
+                    status = 'in_progress'; // 所有模型都已评分，等待计算综合得分
+                } else if (scoredModels > 0) {
+                    status = 'draft'; // 部分评分
+                }
+
+                // 保存到历史记录
+                const evaluationData = {
+                    status,  // v0.5
+                    progress: {  // v0.5
+                        scoredModels,
+                        totalModels,
+                        scoredDimensions: template.dimensions.map(d => d.id),
+                        totalDimensions: template.dimensions.length,
+                        lastUpdated: new Date().toISOString()
+                    },
+                    referenceAnswer,  // v0.5
+                    templateId,
+                    templateName: template.name,
+                    dimensions: template.dimensions,
+                    scores,
+                    weights,
+                    scoringHistory: this.currentReport.evaluation?.scoringHistory || []  // v0.5 保留历史
+                };
+
+                Storage.updateHistoryEvaluation(this.currentReport.id, evaluationData);
+
+                // 更新当前报告
+                this.currentReport.evaluation = evaluationData;
+
+                showToast('评分已保存(草稿)', 'success');
+                this.renderHistoryList();
+            }
+
+            calculateFinalScores() {
+                console.log('[计算综合得分] 开始计算...');
+
+                const evaluation = this.currentReport.evaluation;
+
+                console.log('[计算综合得分] evaluation存在?', !!evaluation);
+                console.log('[计算综合得分] scores存在?', !!evaluation?.scores);
+                console.log('[计算综合得分] weights存在?', !!evaluation?.weights);
+                console.log('[计算综合得分] evaluation数据:', evaluation);
+
+                if (!evaluation || !evaluation.scores || !evaluation.weights) {
+                    console.error('[计算综合得分] ❌ 缺少必要数据');
+                    showToast('请先保存评分', 'error');
+                    return;
+                }
+
+                // 使用聚合函数计算模型级别的统计数据
+                console.log('[计算综合得分] 开始计算聚合数据...');
+                const aggregatedByModel = Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+                console.log('[计算综合得分] 聚合数据:', aggregatedByModel);
+
+                const finalResults = {};
+
+                // 计算每个模型的综合得分（基于平均分）
+                Object.entries(aggregatedByModel).forEach(([modelId, modelData]) => {
+                    const avgScores = modelData.avgScores;
+
+                    let weightedSum = 0;
+                    let totalWeight = 0;
+
+                    evaluation.dimensions.forEach(dim => {
+                        const score = avgScores[dim.id] || 0;
+                        const weight = evaluation.weights[dim.id] || 0;
+                        const normalized = score / dim.scoreRange.max;
+
+                        weightedSum += normalized * weight;
+                        totalWeight += weight;
+                    });
+
+                    const finalScore = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
+
+                    // 计算平均成本
+                    const avgCost = modelData.avgCost || 0;
+
+                    finalResults[modelId] = {
+                        modelName: modelData.modelName,
+                        rawScore: weightedSum / totalWeight,
+                        finalScore: parseFloat(finalScore.toFixed(2)),
+                        cost: avgCost,
+                        costPerformanceRatio: avgCost > 0 ? finalScore / avgCost : 0,
+                        // 保存统计信息用于可视化
+                        stats: {
+                            avgScores: modelData.avgScores,
+                            minScores: modelData.minScores,
+                            maxScores: modelData.maxScores,
+                            stdDevScores: modelData.stdDevScores,
+                            executionCount: modelData.executionCount
+                        }
+                    };
+                });
+
+                // 计算排名
+                const sortedResults = Object.entries(finalResults).sort((a, b) => b[1].finalScore - a[1].finalScore);
+                sortedResults.forEach(([modelId, result], index) => {
+                    result.rank = index + 1;
+                });
+
+                // 保存综合结果并更新状态为"已评测"
+                Storage.updateHistoryEvaluation(this.currentReport.id, {
+                    ...evaluation,
+                    status: 'evaluated',
+                    finalResults,
+                    aggregatedData: aggregatedByModel  // 保存聚合数据供可视化使用
+                });
+
+                this.currentReport.evaluation.finalResults = finalResults;
+                this.currentReport.evaluation.aggregatedData = aggregatedByModel;
+                this.currentReport.evaluation.status = 'evaluated';
+
+                showToast('综合得分计算完成', 'success');
+
+                // 显示结果
+                this.showFinalResults(finalResults);
+
+                // 刷新历史列表
+                this.renderHistoryList();
+            }
+
+            showFinalResults(finalResults) {
+                const resultsHtml = `
+                    <div class="p-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">📊 综合评测结果</h3>
+                        <div class="space-y-3">
+                            ${Object.entries(finalResults).sort((a, b) => a[1].rank - b[1].rank).map(([modelId, result]) => `
+                                <div class="flex items-center justify-between p-3 bg-white rounded-lg">
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-2xl font-bold ${result.rank === 1 ? 'text-yellow-500' : result.rank === 2 ? 'text-gray-400' : result.rank === 3 ? 'text-orange-500' : 'text-gray-400'}">
+                                            ${result.rank === 1 ? '🥇' : result.rank === 2 ? '🥈' : result.rank === 3 ? '🥉' : `#${result.rank}`}
+                                        </span>
+                                        <div>
+                                            <p class="font-semibold text-gray-800">${result.modelName}</p>
+                                            <p class="text-xs text-gray-500">性价比: ${result.costPerformanceRatio.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-2xl font-bold text-purple-600">${result.finalScore}</p>
+                                        <p class="text-xs text-gray-500">成本: $${result.cost.toFixed(6)}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+
+                const finalResultsDiv = document.getElementById('finalResults');
+                if (finalResultsDiv) {
+                    finalResultsDiv.innerHTML = resultsHtml;
+                    finalResultsDiv.style.display = 'block';
+                }
+            }
+
+            renderVisualizationTab() {
+                const evaluation = this.currentReport.evaluation;
+
+                if (!evaluation || !evaluation.finalResults) {
+                    return `
+                        <div class="text-center py-12">
+                            <div class="text-6xl mb-4">📊</div>
+                            <p class="text-gray-600 mb-4">还没有评分数据</p>
+                            <button onclick="window.reportManager.switchTab('scoring')" class="btn-primary px-6 py-3 rounded-xl">
+                                去评分
+                            </button>
+                        </div>
+                    `;
+                }
+
+                // 计算聚合数据
+                let aggregatedData = evaluation.aggregatedData;
+                if (!aggregatedData) {
+                    console.log('[可视化] 计算聚合数据...', {
+                        evaluation,
+                        historyRecord: this.currentReport
+                    });
+                    aggregatedData = Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+                    console.log('[可视化] 聚合数据计算完成:', aggregatedData);
+                }
+
+                // 生成综合排名榜单HTML
+                const rankingHtml = this.generateRankingTable(evaluation.finalResults, aggregatedData);
+
+                return `
+                    <div class="space-y-6">
+                        <!-- 综合排名榜单 -->
+                        <div class="p-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200">
+                            <h3 class="text-xl font-bold text-gray-800 mb-4">📊 综合评测排名</h3>
+                            ${rankingHtml}
+                        </div>
+
+                        <!-- 雷达图 -->
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200 shadow-sm">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-2">🎯 多维度能力对比雷达图</h3>
+                            <p class="text-sm text-gray-600 mb-4">鼠标悬停查看详细统计信息（平均值、范围、标准差）</p>
+                            <div id="radarChart" style="width: 100%; height: 500px;"></div>
+                        </div>
+
+                        <!-- 成本-性能散点图 -->
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200 shadow-sm">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-2">💰 成本-性能分析</h3>
+                            <p class="text-sm text-gray-600 mb-4">横轴：平均成本 | 纵轴：综合得分 | 气泡大小：平均响应时间</p>
+                            <div id="costChart" style="width: 100%; height: 450px;"></div>
+                        </div>
+
+                        <!-- 详细统计表格 -->
+                        <div class="p-6 bg-white rounded-xl border-2 border-gray-200 shadow-sm">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">📈 各维度详细统计</h3>
+                            ${this.generateDetailedStatsTable(evaluation, aggregatedData)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 生成排名榜单表格
+            generateRankingTable(finalResults, aggregatedData) {
+                const sortedResults = Object.entries(finalResults).sort((a, b) => a[1].rank - b[1].rank);
+
+                return `
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b-2 border-purple-300">
+                                    <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">排名</th>
+                                    <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">模型</th>
+                                    <th class="py-3 px-4 text-center text-sm font-semibold text-gray-700">综合得分</th>
+                                    <th class="py-3 px-4 text-center text-sm font-semibold text-gray-700">样本数</th>
+                                    <th class="py-3 px-4 text-center text-sm font-semibold text-gray-700">平均成本</th>
+                                    <th class="py-3 px-4 text-center text-sm font-semibold text-gray-700">性价比</th>
+                                    <th class="py-3 px-4 text-center text-sm font-semibold text-gray-700">平均耗时</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sortedResults.map(([modelId, result]) => {
+                                    const modelData = aggregatedData[modelId];
+                                    const rankEmoji = result.rank === 1 ? '🥇' : result.rank === 2 ? '🥈' : result.rank === 3 ? '🥉' : `#${result.rank}`;
+                                    const rowClass = result.rank === 1 ? 'bg-yellow-50' : result.rank === 2 ? 'bg-gray-50' : result.rank === 3 ? 'bg-orange-50' : '';
+
+                                    return `
+                                        <tr class="${rowClass} border-b border-gray-200 hover:bg-purple-50 transition">
+                                            <td class="py-3 px-4">
+                                                <span class="text-2xl">${rankEmoji}</span>
+                                            </td>
+                                            <td class="py-3 px-4">
+                                                <div class="font-semibold text-gray-800">${result.modelName}</div>
+                                            </td>
+                                            <td class="py-3 px-4 text-center">
+                                                <div class="text-2xl font-bold text-purple-600">${result.finalScore}</div>
+                                            </td>
+                                            <td class="py-3 px-4 text-center">
+                                                <span class="text-sm px-2 py-1 bg-blue-100 text-blue-700 rounded">${result.stats.executionCount}</span>
+                                            </td>
+                                            <td class="py-3 px-4 text-center">
+                                                <div class="text-sm text-gray-700">$${result.cost.toFixed(6)}</div>
+                                            </td>
+                                            <td class="py-3 px-4 text-center">
+                                                <div class="text-sm font-medium text-green-600">${result.costPerformanceRatio.toFixed(0)}</div>
+                                            </td>
+                                            <td class="py-3 px-4 text-center">
+                                                <div class="text-sm text-gray-700">${modelData.avgResponseTime?.toFixed(0) || 0}ms</div>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            // 生成详细统计表格
+            generateDetailedStatsTable(evaluation, aggregatedData) {
+                return `
+                    <div class="space-y-4">
+                        ${Object.entries(aggregatedData).map(([modelId, modelData]) => `
+                            <div class="border border-gray-200 rounded-lg p-4">
+                                <h4 class="font-semibold text-gray-800 mb-3">${modelData.modelName}</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    ${evaluation.dimensions.map(dim => `
+                                        <div class="bg-gray-50 rounded p-3">
+                                            <div class="text-sm font-medium text-gray-700 mb-2">${dim.name}</div>
+                                            <div class="space-y-1 text-xs text-gray-600">
+                                                <div>平均: <span class="font-semibold text-purple-600">${modelData.avgScores[dim.id]?.toFixed(2) || 0}</span> / ${dim.scoreRange.max}</div>
+                                                <div>范围: ${modelData.minScores[dim.id]?.toFixed(2) || 0} - ${modelData.maxScores[dim.id]?.toFixed(2) || 0}</div>
+                                                <div>标准差: ${modelData.stdDevScores[dim.id]?.toFixed(2) || 0}</div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            renderCharts() {
+                this.renderRadarChart();
+                this.renderCostChart();
+            }
+
+            renderRadarChart() {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation) {
+                    console.warn('[雷达图] evaluation数据为空');
+                    return;
+                }
+
+                const chartDom = document.getElementById('radarChart');
+                if (!chartDom) {
+                    console.warn('[雷达图] 找不到图表容器 #radarChart');
+                    return;
+                }
+
+                if (this.radarChart) {
+                    this.radarChart.dispose();
+                }
+
+                this.radarChart = echarts.init(chartDom);
+
+                // 准备雷达图数据
+                const indicators = evaluation.dimensions.map(dim => ({
+                    name: dim.name,
+                    max: dim.scoreRange.max
+                }));
+
+                // 使用聚合数据
+                const aggregatedData = evaluation.aggregatedData || Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+
+                console.log('[雷达图] 聚合数据:', aggregatedData);
+                console.log('[雷达图] 维度:', evaluation.dimensions);
+
+                if (!aggregatedData || Object.keys(aggregatedData).length === 0) {
+                    console.error('[雷达图] 聚合数据为空');
+                    return;
+                }
+
+                const seriesData = Object.entries(aggregatedData).map(([modelId, modelData]) => {
+                    const avgValues = evaluation.dimensions.map(dim => modelData.avgScores[dim.id] || 0);
+
+                    console.log(`[雷达图] ${modelData.modelName} 平均分:`, avgValues);
+
+                    return {
+                        name: modelData.modelName,
+                        value: avgValues,
+                        // 添加统计信息到tooltip
+                        executionCount: modelData.executionCount,
+                        minScores: evaluation.dimensions.map(dim => modelData.minScores[dim.id] || 0),
+                        maxScores: evaluation.dimensions.map(dim => modelData.maxScores[dim.id] || 0),
+                        stdDevScores: evaluation.dimensions.map(dim => modelData.stdDevScores[dim.id] || 0)
+                    };
+                });
+
+                const option = {
+                    tooltip: {
+                        trigger: 'item',
+                        formatter: (params) => {
+                            const data = params.data;
+                            let html = `<strong>${data.name}</strong><br/>`;
+                            html += `样本数: ${data.executionCount}<br/><br/>`;
+
+                            evaluation.dimensions.forEach((dim, idx) => {
+                                html += `<strong>${dim.name}</strong><br/>`;
+                                html += `平均: ${data.value[idx].toFixed(2)}<br/>`;
+                                html += `范围: ${data.minScores[idx].toFixed(2)} - ${data.maxScores[idx].toFixed(2)}<br/>`;
+                                html += `标准差: ${data.stdDevScores[idx].toFixed(2)}<br/><br/>`;
+                            });
+
+                            return html;
+                        }
+                    },
+                    legend: {
+                        data: seriesData.map(s => s.name),
+                        bottom: 10
+                    },
+                    radar: {
+                        indicator: indicators,
+                        radius: '60%'
+                    },
+                    series: [{
+                        type: 'radar',
+                        data: seriesData,
+                        emphasis: {
+                            lineStyle: {
+                                width: 4
+                            }
+                        }
+                    }]
+                };
+
+                this.radarChart.setOption(option);
+            }
+
+            renderCostChart() {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.finalResults) {
+                    console.warn('[成本图] evaluation或finalResults为空');
+                    return;
+                }
+
+                const chartDom = document.getElementById('costChart');
+                if (!chartDom) {
+                    console.warn('[成本图] 找不到图表容器 #costChart');
+                    return;
+                }
+
+                if (this.costChart) {
+                    this.costChart.dispose();
+                }
+
+                this.costChart = echarts.init(chartDom);
+
+                const aggregatedData = evaluation.aggregatedData || Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+
+                console.log('[成本图] 聚合数据:', aggregatedData);
+                console.log('[成本图] finalResults:', evaluation.finalResults);
+
+                // 准备散点图数据 - 使用聚合数据
+                const data = Object.entries(evaluation.finalResults).map(([modelId, result]) => {
+                    const modelData = aggregatedData[modelId];
+                    const avgResponseTime = modelData.avgResponseTime || 1000;
+
+                    return {
+                        name: result.modelName,
+                        value: [
+                            result.cost * 1000000,  // 转换为百万分之一美元，便于显示
+                            result.finalScore
+                        ],
+                        symbolSize: Math.max(10, Math.min(80, avgResponseTime / 50)),  // 根据响应时间调整气泡大小
+                        avgCost: result.cost,
+                        avgResponseTime: avgResponseTime,
+                        costPerformanceRatio: result.costPerformanceRatio,
+                        executionCount: result.stats.executionCount
+                    };
+                });
+
+                const option = {
+                    tooltip: {
+                        trigger: 'item',
+                        formatter: (params) => {
+                            const d = params.data;
+                            return `<strong>${d.name}</strong><br/>` +
+                                   `综合得分: <strong>${d.value[1]}</strong><br/>` +
+                                   `平均成本: $${d.avgCost.toFixed(6)}<br/>` +
+                                   `平均耗时: ${d.avgResponseTime.toFixed(0)}ms<br/>` +
+                                   `性价比: ${d.costPerformanceRatio.toFixed(0)}<br/>` +
+                                   `样本数: ${d.executionCount}`;
+                        }
+                    },
+                    grid: {
+                        left: '10%',
+                        right: '10%',
+                        bottom: '15%',
+                        top: '10%'
+                    },
+                    xAxis: {
+                        name: '平均成本 (百万分之一美元)',
+                        nameLocation: 'center',
+                        nameGap: 35,
+                        nameTextStyle: {
+                            fontSize: 12,
+                            color: '#666'
+                        },
+                        axisLabel: {
+                            formatter: (value) => value.toFixed(0)
+                        }
+                    },
+                    yAxis: {
+                        name: '综合得分',
+                        nameLocation: 'center',
+                        nameGap: 45,
+                        nameTextStyle: {
+                            fontSize: 12,
+                            color: '#666'
+                        },
+                        min: 0,
+                        max: 100
+                    },
+                    series: [{
+                        type: 'scatter',
+                        data: data,
+                        label: {
+                            show: true,
+                            formatter: '{b}',
+                            position: 'top',
+                            fontSize: 11
+                        },
+                        itemStyle: {
+                            color: (params) => {
+                                // 根据性价比着色
+                                const ratio = params.data.costPerformanceRatio;
+                                if (ratio > 15000) return '#10b981'; // 绿色 - 性价比高
+                                if (ratio > 10000) return '#3b82f6'; // 蓝色 - 性价比中等
+                                return '#f59e0b'; // 橙色 - 性价比低
+                            },
+                            opacity: 0.8
+                        },
+                        emphasis: {
+                            itemStyle: {
+                                opacity: 1,
+                                shadowBlur: 10,
+                                shadowColor: 'rgba(0, 0, 0, 0.3)'
+                            }
+                        }
+                    }]
+                };
+
+                this.costChart.setOption(option);
+            }
+
+            renderExportTab() {
+                return `
+                    <div class="space-y-6">
+                        <div class="p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4">导出选项</h3>
+
+                            <div class="space-y-3">
+                                <button onclick="window.reportManager.exportPNG()" class="w-full px-6 py-3 bg-white border-2 border-blue-300 text-blue-600 rounded-xl hover:bg-blue-50 font-medium">
+                                    📸 导出雷达图为PNG
+                                </button>
+
+                                <button onclick="window.reportManager.exportHTML()" class="w-full px-6 py-3 bg-white border-2 border-purple-300 text-purple-600 rounded-xl hover:bg-purple-50 font-medium">
+                                    📄 导出完整HTML报告
+                                </button>
+
+                                <button onclick="window.reportManager.exportCSV()" class="w-full px-6 py-3 bg-white border-2 border-green-300 text-green-600 rounded-xl hover:bg-green-50 font-medium">
+                                    📊 导出CSV数据
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            attachExportEventListeners() {
+                // 导出功能已通过onclick绑定
+            }
+
+            exportPNG() {
+                if (!this.radarChart) {
+                    showToast('请先查看可视化分析', 'error');
+                    return;
+                }
+
+                const url = this.radarChart.getDataURL({
+                    type: 'png',
+                    pixelRatio: 2,
+                    backgroundColor: '#fff'
+                });
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `evaluation-radar-${Date.now()}.png`;
+                link.click();
+
+                showToast('雷达图已导出', 'success');
+            }
+
+            exportHTML() {
+                const evaluation = this.currentReport.evaluation;
+                if (!evaluation || !evaluation.finalResults) {
+                    showToast('请先完成评分', 'error');
+                    return;
+                }
+
+                const html = this.generateHTMLReport();
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `evaluation-report-${Date.now()}.html`;
+                link.click();
+
+                URL.revokeObjectURL(url);
+                showToast('HTML报告已导出', 'success');
+            }
+
+            generateHTMLReport() {
+                const { task, mode, evaluation } = this.currentReport;
+                const aggregatedData = evaluation.aggregatedData || Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+
+                const taskName = mode === 'single' ? task.name : '任务链评测';
+
+                return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>评测报告 - ${this.escapeHtml(taskName)}</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #7c3aed; }
+        .model-result { border: 2px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .score-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .score-table th, .score-table td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+        .score-table th { background: #f3f4f6; }
+        .rank-1 { background: #fef3c7; }
+        .rank-2 { background: #f3f4f6; }
+        .rank-3 { background: #fed7aa; }
+        .stats { color: #6b7280; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>📊 AI模型评测报告</h1>
+    <p><strong>任务:</strong> ${this.escapeHtml(taskName)}</p>
+    <p><strong>测试模式:</strong> ${mode === 'single' ? '单任务' : '任务链'}</p>
+    <p><strong>生成时间:</strong> ${new Date().toLocaleString('zh-CN')}</p>
+
+    <h2>综合排名</h2>
+    <table class="score-table">
+        <thead>
+            <tr>
+                <th>排名</th>
+                <th>模型</th>
+                <th>综合得分</th>
+                <th>平均成本</th>
+                <th>性价比</th>
+                <th>样本数</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${Object.entries(evaluation.finalResults || {}).sort((a, b) => a[1].rank - b[1].rank).map(([id, result]) => `
+                <tr class="rank-${result.rank}">
+                    <td>${result.rank}</td>
+                    <td>${result.modelName}</td>
+                    <td>${result.finalScore}</td>
+                    <td>$${result.cost.toFixed(6)}</td>
+                    <td>${result.costPerformanceRatio.toFixed(2)}</td>
+                    <td>${result.stats.executionCount}</td>
+                </tr>
+            `).join('')}
+        </tbody>
+    </table>
+
+    <h2>各维度得分统计</h2>
+    ${Object.entries(aggregatedData).map(([modelId, modelData]) => `
+        <div class="model-result">
+            <h3>${modelData.modelName}</h3>
+            <p class="stats">基于 ${modelData.executionCount} 个输出的统计结果</p>
+            ${evaluation.dimensions.map(dim => `
+                <p>
+                    <strong>${dim.name}:</strong><br/>
+                    <span class="stats">
+                        平均: ${modelData.avgScores[dim.id]?.toFixed(2) || 0} / ${dim.scoreRange.max}<br/>
+                        范围: ${modelData.minScores[dim.id]?.toFixed(2) || 0} - ${modelData.maxScores[dim.id]?.toFixed(2) || 0}<br/>
+                        标准差: ${modelData.stdDevScores[dim.id]?.toFixed(2) || 0}
+                    </span>
+                </p>
+            `).join('')}
+        </div>
+    `).join('')}
+
+    <hr style="margin: 30px 0; border: none; border-top: 2px solid #e5e7eb;">
+    <p style="text-align: center; color: #6b7280; font-size: 0.9em;">
+        由 EvalLite v0.6 生成 | ${new Date().toLocaleString('zh-CN')}
+    </p>
+</body>
+</html>
+                `;
+            }
+
+            exportCSV() {
+                const { evaluation } = this.currentReport;
+                if (!evaluation || !evaluation.finalResults) {
+                    showToast('请先完成评分', 'error');
+                    return;
+                }
+
+                const aggregatedData = evaluation.aggregatedData || Storage.calculateAggregatedByModel(evaluation, this.currentReport);
+
+                // 生成CSV - 包含平均分、最小值、最大值、标准差
+                let csv = '模型,样本数,';
+
+                // 添加维度列（平均分、最小值、最大值、标准差）
+                evaluation.dimensions.forEach(d => {
+                    csv += `${d.name}_平均,${d.name}_最小,${d.name}_最大,${d.name}_标准差,`;
+                });
+                csv += '综合得分,平均成本,性价比,排名\n';
+
+                Object.entries(aggregatedData).forEach(([modelId, modelData]) => {
+                    const finalResult = evaluation.finalResults[modelId];
+
+                    csv += `${modelData.modelName},${modelData.executionCount},`;
+
+                    // 添加每个维度的统计数据
+                    evaluation.dimensions.forEach(dim => {
+                        csv += `${modelData.avgScores[dim.id]?.toFixed(2) || 0},`;
+                        csv += `${modelData.minScores[dim.id]?.toFixed(2) || 0},`;
+                        csv += `${modelData.maxScores[dim.id]?.toFixed(2) || 0},`;
+                        csv += `${modelData.stdDevScores[dim.id]?.toFixed(2) || 0},`;
+                    });
+
+                    csv += `${finalResult.finalScore},${finalResult.cost.toFixed(6)},${finalResult.costPerformanceRatio.toFixed(2)},${finalResult.rank}\n`;
+                });
+
+                // 添加BOM以支持Excel正确显示中文
+                const BOM = '\uFEFF';
+                const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `evaluation-data-${Date.now()}.csv`;
+                link.click();
+
+                URL.revokeObjectURL(url);
+                showToast('CSV数据已导出', 'success');
+            }
+
+            closeReportModal() {
+                const modal = document.getElementById('reportModal');
+                modal.classList.add('hidden');
+                modal.style.display = 'none';
+                this.currentReport = null;
+
+                // 销毁图表
+                if (this.radarChart) {
+                    this.radarChart.dispose();
+                    this.radarChart = null;
+                }
+                if (this.costChart) {
+                    this.costChart.dispose();
+                    this.costChart = null;
+                }
+            }
+
+            deleteReport(index) {
+                if (!confirm('确定要删除这条评测记录吗？')) return;
+
+                const history = Storage.getHistory();
+                history.splice(index, 1);
+                localStorage.setItem('evallite_history', JSON.stringify(history));
+
+                this.renderHistoryList();
+                showToast('记录已删除', 'info');
+            }
+
+            clearAll() {
+                if (!confirm('确定要清空所有评测记录吗？此操作不可恢复！')) return;
+
+                localStorage.removeItem('evallite_history');
+                this.renderHistoryList();
+                showToast('已清空所有记录', 'info');
+            }
+
+            escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            formatDate(isoString) {
+                const date = new Date(isoString);
+                return date.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+        }
+
+        // 初始化
+        window.reportManager = new ReportManager();
+        window.showToast = showToast;
+    </script>
+</body>
+</html>

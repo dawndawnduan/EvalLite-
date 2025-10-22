@@ -1,0 +1,26 @@
+{
+  "name": "evallite-proxy",
+  "version": "1.0.0",
+  "description": "Lightweight CORS proxy for EvalLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "proxy",
+    "cors",
+    "ai",
+    "models"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

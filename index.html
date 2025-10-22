@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EvalLite - AI模型测评工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="css/common.css">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 60vh;
+            display: flex;
+            align-items: center;
+            justify-center;
+            text-align: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="2" fill="rgba(255,255,255,0.1)"/></svg>');
+            opacity: 0.3;
+        }
+
+        .feature-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .nav-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+        }
+
+        .nav-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.3);
+        }
+
+        .stats-number {
+            font-size: 3rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏将通过JS插入 -->
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="relative z-10 max-w-4xl mx-auto px-4">
+            <h1 class="text-5xl md:text-6xl font-bold mb-6">EvalLite</h1>
+            <p class="text-xl md:text-2xl mb-8 text-white/90">轻量级 AI 模型测评工具</p>
+            <p class="text-lg mb-10 text-white/80 max-w-2xl mx-auto">
+                快速对比不同大模型的表现 · 零部署 · 开箱即用 · 隐私优先
+            </p>
+            <a href="test.html" class="inline-block bg-white text-purple-600 px-8 py-4 rounded-xl font-semibold text-lg shadow-2xl hover:shadow-3xl transition transform hover:scale-105">
+                开始测试 →
+            </a>
+        </div>
+    </section>
+
+    <!-- Navigation Cards -->
+    <section class="page-container py-16">
+        <h2 class="text-3xl font-bold text-center mb-12 text-gray-800">快速导航</h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <!-- Model Management Card -->
+            <a href="models.html" class="nav-card">
+                <div class="text-5xl mb-4">🤖</div>
+                <h3 class="text-xl font-semibold mb-2 text-gray-800">模型管理</h3>
+                <p class="text-gray-600 text-sm mb-4">配置和管理您的AI模型</p>
+                <div class="text-purple-600 font-medium text-sm">进入 →</div>
+            </a>
+
+            <!-- Task Management Card -->
+            <a href="tasks.html" class="nav-card">
+                <div class="text-5xl mb-4">📝</div>
+                <h3 class="text-xl font-semibold mb-2 text-gray-800">任务管理</h3>
+                <p class="text-gray-600 text-sm mb-4">创建和管理测试任务</p>
+                <div class="text-purple-600 font-medium text-sm">进入 →</div>
+            </a>
+
+            <!-- Test Execution Card -->
+            <a href="test.html" class="nav-card">
+                <div class="text-5xl mb-4">🚀</div>
+                <h3 class="text-xl font-semibold mb-2 text-gray-800">测试执行</h3>
+                <p class="text-gray-600 text-sm mb-4">运行AI模型测试</p>
+                <div class="text-purple-600 font-medium text-sm">进入 →</div>
+            </a>
+
+            <!-- Evaluation Config Card -->
+            <a href="evaluation-config.html" class="nav-card">
+                <div class="text-5xl mb-4">⚙️</div>
+                <h3 class="text-xl font-semibold mb-2 text-gray-800">评测配置</h3>
+                <p class="text-gray-600 text-sm mb-4">创建评测维度模板</p>
+                <div class="text-purple-600 font-medium text-sm">进入 →</div>
+            </a>
+
+            <!-- Reports Card -->
+            <a href="reports.html" class="nav-card">
+                <div class="text-5xl mb-4">📊</div>
+                <h3 class="text-xl font-semibold mb-2 text-gray-800">评测报告</h3>
+                <p class="text-gray-600 text-sm mb-4">查看评测报告和分析</p>
+                <div class="text-purple-600 font-medium text-sm">进入 →</div>
+            </a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="bg-gradient-to-b from-white to-gray-50 py-16">
+        <div class="page-container">
+            <h2 class="text-3xl font-bold text-center mb-12 text-gray-800">核心特性</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">🎯</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">两种测试模式</h3>
+                    <p class="text-gray-600">单任务测试支持重复执行,任务链支持3种输入模式</p>
+                </div>
+
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">🔒</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">隐私优先</h3>
+                    <p class="text-gray-600">所有数据本地存储,API Key不会上传到任何服务器</p>
+                </div>
+
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">⚡</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">零部署</h3>
+                    <p class="text-gray-600">下载即用,无需配置数据库或复杂环境</p>
+                </div>
+
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">📝</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">任务库管理</h3>
+                    <p class="text-gray-600">独立页面管理任务,支持创建、编辑、复用</p>
+                </div>
+
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">📈</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">统计分析</h3>
+                    <p class="text-gray-600">重复执行时显示平均耗时、成功率等数据</p>
+                </div>
+
+                <div class="feature-card glass-effect rounded-2xl p-6 text-center">
+                    <div class="text-5xl mb-4">🌐</div>
+                    <h3 class="text-xl font-semibold mb-3 text-gray-800">多模型支持</h3>
+                    <p class="text-gray-600">支持OpenAI、Anthropic、Google、DeepSeek等</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Start Section -->
+    <section class="page-container py-16">
+        <h2 class="text-3xl font-bold text-center mb-12 text-gray-800">快速开始</h2>
+
+        <div class="max-w-3xl mx-auto">
+            <div class="space-y-6">
+                <div class="glass-effect rounded-2xl p-6 flex items-start gap-4">
+                    <div class="bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-xl flex-shrink-0">
+                        1
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-2 text-gray-800">配置模型</h3>
+                        <p class="text-gray-600">在模型管理页面添加您的AI模型和API Key</p>
+                    </div>
+                </div>
+
+                <div class="glass-effect rounded-2xl p-6 flex items-start gap-4">
+                    <div class="bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-xl flex-shrink-0">
+                        2
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-2 text-gray-800">创建任务</h3>
+                        <p class="text-gray-600">在任务管理页面创建测试任务,设置System和User Prompt</p>
+                    </div>
+                </div>
+
+                <div class="glass-effect rounded-2xl p-6 flex items-start gap-4">
+                    <div class="bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-xl flex-shrink-0">
+                        3
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-2 text-gray-800">执行测试</h3>
+                        <p class="text-gray-600">选择测试模式,配置任务和模型,开始测试并查看结果</p>
+                    </div>
+                </div>
+
+                <div class="glass-effect rounded-2xl p-6 flex items-start gap-4">
+                    <div class="bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-xl flex-shrink-0">
+                        4
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-semibold mb-2 text-gray-800">查看历史</h3>
+                        <p class="text-gray-600">在历史记录页面回顾测试结果,导出数据</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mt-10">
+                <a href="test.html" class="btn-primary px-8 py-4 rounded-xl font-semibold text-lg shadow-lg inline-block text-white">
+                    立即开始测试
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-8 mt-16">
+        <div class="page-container text-center">
+            <p class="mb-2">EvalLite - 轻量级 AI 模型测评工具</p>
+            <p class="text-sm text-gray-400">下载即用 · 让模型测评像填写表格一样简单</p>
+            <p class="text-xs text-gray-500 mt-4">MIT License</p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script type="module">
+        import { renderNavbar } from './js/navbar.js';
+
+        // 渲染导航栏
+        renderNavbar('home');
+
+        // 统计数据动画
+        function animateNumber(element, target, duration = 2000) {
+            let start = 0;
+            const increment = target / (duration / 16);
+            const timer = setInterval(() => {
+                start += increment;
+                if (start >= target) {
+                    element.textContent = Math.round(target);
+                    clearInterval(timer);
+                } else {
+                    element.textContent = Math.round(start);
+                }
+            }, 16);
+        }
+
+        // 页面加载完成后执行动画
+        window.addEventListener('load', () => {
+            const numbers = document.querySelectorAll('.stats-number');
+            numbers.forEach(num => {
+                const target = parseInt(num.dataset.target || 0);
+                animateNumber(num, target);
+            });
+        });
+    </script>
+</body>
+</html>

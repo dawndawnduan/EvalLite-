@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>评测配置 - EvalLite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="css/common.css">
+</head>
+<body class="min-h-screen">
+    <!-- 导航栏将通过JS插入 -->
+
+    <!-- Main Content -->
+    <main class="page-container">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="page-title">评测配置</h1>
+            <p class="page-subtitle">创建和管理评测维度模板</p>
+        </div>
+
+        <!-- Create Template Section -->
+        <div class="glass-effect rounded-2xl p-6 mb-6 shadow-lg">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">创建评测模板</h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">模板名称</label>
+                    <input type="text" id="templateName" placeholder="例如：通用质量评测" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">模板描述</label>
+                    <textarea id="templateDescription" rows="2" placeholder="描述这个评测模板的用途..." class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 transition"></textarea>
+                </div>
+
+                <!-- Dimensions Section -->
+                <div class="mt-6">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-md font-semibold text-gray-800">评测维度</h3>
+                        <button id="addDimensionBtn" class="px-4 py-2 text-purple-600 border border-purple-300 rounded-lg hover:bg-purple-50 transition font-medium text-sm">
+                            + 添加维度
+                        </button>
+                    </div>
+
+                    <div id="dimensionsList" class="space-y-3">
+                        <!-- Dimensions will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- AI Scoring Config -->
+                <div class="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                    <div class="flex items-center gap-2 mb-3">
+                        <input type="checkbox" id="enableAiScoring" class="w-4 h-4 text-purple-600">
+                        <label class="text-sm font-semibold text-gray-800">启用 AI 自动评分</label>
+                    </div>
+
+                    <div id="aiScoringConfig" class="space-y-3" style="display: none;">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">评委模型</label>
+                            <select id="judgeModelSelect" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition text-sm">
+                                <option value="">选择评委模型</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">评分 Prompt 模板</label>
+                            <textarea id="promptTemplate" rows="6" placeholder="请作为一个专业评委，评估以下AI模型的输出质量。&#10;&#10;任务：{task_description}&#10;待评估输出：{model_output}&#10;&#10;请按以下维度打分（0-5分）：&#10;1. 流畅度&#10;2. 准确性&#10;3. 完整性&#10;&#10;输出格式：JSON" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition text-sm font-mono"></textarea>
+                            <p class="text-xs text-gray-600 mt-1">💡 支持变量: {task_description}, {model_output}, {reference_answer}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex gap-3">
+                    <button id="saveTemplateBtn" class="btn-primary px-6 py-3 rounded-xl font-medium shadow-lg">
+                        保存模板
+                    </button>
+                    <button id="clearFormBtn" class="px-6 py-3 text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium">
+                        清空表单
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Templates List -->
+        <div class="glass-effect rounded-2xl p-6 shadow-lg">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">已保存的模板</h2>
+            <div id="templatesList" class="space-y-4">
+                <!-- Templates will be rendered here -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="text-center py-12" style="display: none;">
+                <div class="text-6xl mb-4">📋</div>
+                <h3 class="text-xl font-semibold text-gray-700 mb-2">还没有评测模板</h3>
+                <p class="text-gray-500 mb-6">创建您的第一个评测模板</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Dimension Edit Modal -->
+    <div id="dimensionModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="backdrop-filter: blur(5px);">
+        <div class="glass-effect rounded-2xl max-w-md w-full mx-4 p-6 shadow-2xl">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">
+                <span id="modalTitle">添加评测维度</span>
+            </h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">维度名称</label>
+                    <input type="text" id="dimensionName" placeholder="例如：流畅度" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">评分范围</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <input type="number" id="dimensionMin" placeholder="最小分" value="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition">
+                        </div>
+                        <div>
+                            <input type="number" id="dimensionMax" placeholder="最大分" value="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">步长（可选）</label>
+                    <input type="number" id="dimensionStep" placeholder="例如：0.5" step="0.1" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">评分标准说明</label>
+                    <textarea id="dimensionDescription" rows="3" placeholder="描述如何为这个维度打分..." class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 transition"></textarea>
+                </div>
+            </div>
+
+            <div class="mt-6 flex gap-3">
+                <button id="saveDimensionBtn" class="flex-1 btn-primary px-4 py-2 rounded-lg font-medium">
+                    确定
+                </button>
+                <button id="closeDimensionModal" class="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium">
+                    取消
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module">
+        import { renderNavbar, showToast } from './js/navbar.js';
+        import { Storage } from './js/storage.js';
+
+        // 渲染导航栏
+        renderNavbar('evaluation-config');
+
+        class EvaluationConfigManager {
+            constructor() {
+                this.currentDimensions = [];
+                this.editingDimensionIndex = null;
+                this.editingTemplateId = null;
+                this.attachEventListeners();
+                this.loadTemplates();
+                this.loadModelsForJudge();
+            }
+
+            attachEventListeners() {
+                document.getElementById('addDimensionBtn').addEventListener('click', () => this.openDimensionModal());
+                document.getElementById('saveDimensionBtn').addEventListener('click', () => this.saveDimension());
+                document.getElementById('closeDimensionModal').addEventListener('click', () => this.closeDimensionModal());
+                document.getElementById('saveTemplateBtn').addEventListener('click', () => this.saveTemplate());
+                document.getElementById('clearFormBtn').addEventListener('click', () => this.clearForm());
+                document.getElementById('enableAiScoring').addEventListener('change', (e) => {
+                    document.getElementById('aiScoringConfig').style.display = e.target.checked ? 'block' : 'none';
+                });
+
+                // 点击模态框背景关闭
+                document.getElementById('dimensionModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'dimensionModal') this.closeDimensionModal();
+                });
+            }
+
+            loadModelsForJudge() {
+                const models = Storage.getModels();
+                const select = document.getElementById('judgeModelSelect');
+
+                select.innerHTML = '<option value="">选择评委模型</option>' +
+                    models.map(m => `<option value="${m.id}">${m.modelName} (${m.provider})</option>`).join('');
+            }
+
+            openDimensionModal(index = null) {
+                this.editingDimensionIndex = index;
+                const modal = document.getElementById('dimensionModal');
+                const title = document.getElementById('modalTitle');
+
+                if (index !== null) {
+                    // 编辑模式
+                    title.textContent = '编辑评测维度';
+                    const dim = this.currentDimensions[index];
+                    document.getElementById('dimensionName').value = dim.name;
+                    document.getElementById('dimensionMin').value = dim.scoreRange.min;
+                    document.getElementById('dimensionMax').value = dim.scoreRange.max;
+                    document.getElementById('dimensionStep').value = dim.scoreRange.step || '';
+                    document.getElementById('dimensionDescription').value = dim.description || '';
+                } else {
+                    // 新增模式
+                    title.textContent = '添加评测维度';
+                    document.getElementById('dimensionName').value = '';
+                    document.getElementById('dimensionMin').value = '0';
+                    document.getElementById('dimensionMax').value = '5';
+                    document.getElementById('dimensionStep').value = '';
+                    document.getElementById('dimensionDescription').value = '';
+                }
+
+                modal.style.display = 'flex';
+            }
+
+            closeDimensionModal() {
+                document.getElementById('dimensionModal').style.display = 'none';
+                this.editingDimensionIndex = null;
+            }
+
+            saveDimension() {
+                const name = document.getElementById('dimensionName').value.trim();
+                const min = parseFloat(document.getElementById('dimensionMin').value);
+                const max = parseFloat(document.getElementById('dimensionMax').value);
+                const step = document.getElementById('dimensionStep').value;
+                const description = document.getElementById('dimensionDescription').value.trim();
+
+                if (!name) {
+                    showToast('请输入维度名称', 'error');
+                    return;
+                }
+
+                if (isNaN(min) || isNaN(max) || min >= max) {
+                    showToast('评分范围无效', 'error');
+                    return;
+                }
+
+                const dimension = {
+                    id: this.editingDimensionIndex !== null
+                        ? this.currentDimensions[this.editingDimensionIndex].id
+                        : Storage.generateId(),
+                    name,
+                    type: 'custom',
+                    scoreRange: {
+                        min,
+                        max,
+                        ...(step && { step: parseFloat(step) })
+                    },
+                    description
+                };
+
+                if (this.editingDimensionIndex !== null) {
+                    this.currentDimensions[this.editingDimensionIndex] = dimension;
+                } else {
+                    this.currentDimensions.push(dimension);
+                }
+
+                this.renderDimensions();
+                this.closeDimensionModal();
+                showToast('维度已保存', 'success');
+            }
+
+            renderDimensions() {
+                const container = document.getElementById('dimensionsList');
+
+                if (this.currentDimensions.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">暂无评测维度，点击"添加维度"按钮创建</p>';
+                    return;
+                }
+
+                container.innerHTML = this.currentDimensions.map((dim, index) => `
+                    <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-800">${this.escapeHtml(dim.name)}</div>
+                            <div class="text-sm text-gray-600 mt-1">
+                                范围: ${dim.scoreRange.min} - ${dim.scoreRange.max}
+                                ${dim.scoreRange.step ? ` (步长: ${dim.scoreRange.step})` : ''}
+                            </div>
+                            ${dim.description ? `<div class="text-xs text-gray-500 mt-1">${this.escapeHtml(dim.description)}</div>` : ''}
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="window.evalConfigManager.openDimensionModal(${index})" class="text-blue-600 hover:text-blue-800 text-sm">
+                                编辑
+                            </button>
+                            <button onclick="window.evalConfigManager.removeDimension(${index})" class="text-red-600 hover:text-red-800 text-sm">
+                                删除
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            removeDimension(index) {
+                if (!confirm('确定要删除这个维度吗？')) return;
+                this.currentDimensions.splice(index, 1);
+                this.renderDimensions();
+                showToast('维度已删除', 'info');
+            }
+
+            saveTemplate() {
+                const name = document.getElementById('templateName').value.trim();
+                const description = document.getElementById('templateDescription').value.trim();
+
+                if (!name) {
+                    showToast('请输入模板名称', 'error');
+                    return;
+                }
+
+                if (this.currentDimensions.length === 0) {
+                    showToast('请至少添加一个评测维度', 'error');
+                    return;
+                }
+
+                const template = {
+                    name,
+                    description,
+                    dimensions: this.currentDimensions
+                };
+
+                // AI评分配置
+                const enableAiScoring = document.getElementById('enableAiScoring').checked;
+                if (enableAiScoring) {
+                    const judgeModelId = document.getElementById('judgeModelSelect').value;
+                    const promptTemplate = document.getElementById('promptTemplate').value.trim();
+
+                    if (!judgeModelId) {
+                        showToast('请选择评委模型', 'error');
+                        return;
+                    }
+
+                    template.aiScoringConfig = {
+                        enabled: true,
+                        judgeModelId,
+                        promptTemplate
+                    };
+                }
+
+                if (this.editingTemplateId) {
+                    // 更新现有模板
+                    Storage.updateEvaluationTemplate(this.editingTemplateId, template);
+                    showToast('模板已更新', 'success');
+                    this.editingTemplateId = null;
+                } else {
+                    // 创建新模板
+                    Storage.addEvaluationTemplate(template);
+                    showToast('模板已保存', 'success');
+                }
+
+                this.clearForm();
+                this.loadTemplates();
+            }
+
+            clearForm() {
+                document.getElementById('templateName').value = '';
+                document.getElementById('templateDescription').value = '';
+                this.currentDimensions = [];
+                this.renderDimensions();
+                document.getElementById('enableAiScoring').checked = false;
+                document.getElementById('aiScoringConfig').style.display = 'none';
+                document.getElementById('judgeModelSelect').value = '';
+                document.getElementById('promptTemplate').value = '';
+                this.editingTemplateId = null;
+            }
+
+            loadTemplates() {
+                const templates = Storage.getEvaluationTemplates();
+                const container = document.getElementById('templatesList');
+                const emptyState = document.getElementById('emptyState');
+
+                if (templates.length === 0) {
+                    container.style.display = 'none';
+                    emptyState.style.display = 'block';
+                    return;
+                }
+
+                container.style.display = 'block';
+                emptyState.style.display = 'none';
+
+                container.innerHTML = templates.map(template => `
+                    <div class="p-4 bg-white border-2 border-gray-200 rounded-xl">
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="flex-1">
+                                <h3 class="text-lg font-semibold text-gray-800">${this.escapeHtml(template.name)}</h3>
+                                ${template.description ? `<p class="text-sm text-gray-600 mt-1">${this.escapeHtml(template.description)}</p>` : ''}
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="window.evalConfigManager.editTemplate('${template.id}')" class="px-3 py-1 text-blue-600 hover:bg-blue-50 rounded-lg transition text-sm">
+                                    编辑
+                                </button>
+                                <button onclick="window.evalConfigManager.deleteTemplate('${template.id}')" class="px-3 py-1 text-red-600 hover:bg-red-50 rounded-lg transition text-sm">
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 pt-3 border-t border-gray-200">
+                            <p class="text-sm font-medium text-gray-700 mb-2">评测维度 (${template.dimensions.length}):</p>
+                            <div class="flex flex-wrap gap-2">
+                                ${template.dimensions.map(dim => `
+                                    <span class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                                        ${this.escapeHtml(dim.name)} (${dim.scoreRange.min}-${dim.scoreRange.max})
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        ${template.aiScoringConfig?.enabled ? `
+                            <div class="mt-3 pt-3 border-t border-gray-200">
+                                <p class="text-sm text-green-600">✅ 已启用 AI 自动评分</p>
+                            </div>
+                        ` : ''}
+
+                        <div class="mt-3 text-xs text-gray-400">
+                            创建于 ${this.formatDate(template.createdAt)}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            editTemplate(templateId) {
+                const template = Storage.getEvaluationTemplate(templateId);
+                if (!template) return;
+
+                this.editingTemplateId = templateId;
+                document.getElementById('templateName').value = template.name;
+                document.getElementById('templateDescription').value = template.description || '';
+                this.currentDimensions = [...template.dimensions];
+                this.renderDimensions();
+
+                if (template.aiScoringConfig?.enabled) {
+                    document.getElementById('enableAiScoring').checked = true;
+                    document.getElementById('aiScoringConfig').style.display = 'block';
+                    document.getElementById('judgeModelSelect').value = template.aiScoringConfig.judgeModelId || '';
+                    document.getElementById('promptTemplate').value = template.aiScoringConfig.promptTemplate || '';
+                }
+
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                showToast('模板已加载到编辑区', 'info');
+            }
+
+            deleteTemplate(templateId) {
+                if (!confirm('确定要删除这个评测模板吗？')) return;
+
+                Storage.deleteEvaluationTemplate(templateId);
+                this.loadTemplates();
+                showToast('模板已删除', 'info');
+            }
+
+            escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            formatDate(isoString) {
+                const date = new Date(isoString);
+                return date.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+        }
+
+        // 初始化
+        window.evalConfigManager = new EvaluationConfigManager();
+    </script>
+</body>
+</html>
