@@ -47,18 +47,19 @@ export const MODEL_CONFIGS = {
     siliconflow: {
         name: '硅基流动 SiliconFlow',
         models: [
+            // 默认模型列表（后备）- 当API调用失败时使用
             { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3' },
             { id: 'Qwen/QwQ-32B', name: 'QwQ-32B' },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen2.5-72B' },
-            { id: 'Qwen/Qwen2.5-32B-Instruct', name: 'Qwen2.5-32B' },
-            { id: 'Qwen/Qwen2.5-14B-Instruct', name: 'Qwen2.5-14B' },
-            { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen2.5-7B' },
-            { id: 'THUDM/glm-4-9b-chat', name: 'GLM-4-9B' },
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama-3.3-70B' },
-            { id: 'meta-llama/Llama-3.1-70B-Instruct', name: 'Llama-3.1-70B' },
-            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama-3.1-8B' }
+            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen2.5-72B-Instruct' },
+            { id: 'Qwen/Qwen2.5-32B-Instruct', name: 'Qwen2.5-32B-Instruct' },
+            { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen2.5-7B-Instruct' },
+            { id: 'THUDM/glm-4-9b-chat', name: 'GLM-4-9B-Chat' },
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama-3.3-70B-Instruct' },
+            { id: 'meta-llama/Llama-3.1-70B-Instruct', name: 'Llama-3.1-70B-Instruct' }
         ],
-        endpoint: 'https://api.siliconflow.cn/v1/chat/completions'
+        endpoint: 'https://api.siliconflow.cn/v1/chat/completions',
+        modelsEndpoint: 'https://api.siliconflow.cn/v1/models?type=text&sub_type=chat', // 使用查询参数过滤聊天模型
+        supportsLiveModels: true // 标记支持实时获取模型列表
     }
 };
 
@@ -417,6 +418,82 @@ export async function callModelAPI(provider, modelId, apiKey, messages) {
         content: result.content,
         tokensUsed: result.tokensUsed
     };
+}
+
+/**
+ * 获取硅基流动的完整模型列表
+ * @param {string} apiKey - API密钥（推荐提供以获取完整列表）
+ * @returns {Promise<Array>} 模型列表 [{ id: string, name: string }]
+ */
+export async function fetchSiliconFlowModels(apiKey = null) {
+    try {
+        console.log('[APIClient] 正在获取硅基流动模型列表...');
+        console.log('[APIClient] API Key 提供:', apiKey ? '是' : '否（可能只返回公开模型）');
+
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        // 如果提供了 API Key，添加到请求头（推荐，可获取完整模型列表）
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        const response = await fetch(PROXY_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: MODEL_CONFIGS.siliconflow.modelsEndpoint,
+                method: 'GET', // 指定使用GET方法
+                headers: headers,
+                body: {} // GET请求，body为空
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.warn('[APIClient] 获取硅基流动模型列表失败:', response.status, errorText);
+            console.warn('[APIClient] 使用默认模型列表');
+            return MODEL_CONFIGS.siliconflow.models;
+        }
+
+        const data = await response.json();
+        console.log('[APIClient] API 返回数据:', data);
+
+        // 硅基流动 API 返回格式: { object: "list", data: [{ id: "model-id", object: "model", created: 0, owned_by: "" }] }
+        if (!data || !data.data || !Array.isArray(data.data)) {
+            console.warn('[APIClient] 硅基流动API返回格式不符合预期:', data);
+            console.warn('[APIClient] 使用默认模型列表');
+            return MODEL_CONFIGS.siliconflow.models;
+        }
+
+        // 转换为我们需要的格式（API已通过 type=text&sub_type=chat 参数过滤了聊天模型）
+        const models = data.data
+            .map(model => ({
+                id: model.id,
+                // 使用模型ID的最后部分作为显示名称，如果有斜杠则取最后一部分
+                name: model.id.includes('/') ? model.id.split('/').pop() : model.id
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)); // 按名称排序
+
+        console.log(`[APIClient] 成功获取 ${models.length} 个硅基流动聊天模型`);
+        console.log('[APIClient] 模型列表预览:', models.slice(0, 5));
+
+        // 如果模型数量很少，可能是没有提供 API Key
+        if (models.length < 10 && !apiKey) {
+            console.warn('[APIClient] ⚠️ 提示：未提供API Key，可能只返回了部分公开模型');
+            console.warn('[APIClient] ⚠️ 建议：在选择硅基流动后，输入您的API Key以获取完整模型列表');
+        }
+
+        return models;
+
+    } catch (error) {
+        console.error('[APIClient] 获取硅基流动模型列表出错:', error);
+        console.warn('[APIClient] 使用默认模型列表');
+        return MODEL_CONFIGS.siliconflow.models;
+    }
 }
 
 export default APIClient;

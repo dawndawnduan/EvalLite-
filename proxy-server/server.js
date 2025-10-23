@@ -32,8 +32,11 @@ app.use(express.static(path.join(__dirname, '..')));
 
 /**
  * 使用原生 https 模块发送请求（兼容性更好）
+ * @param {string} url - 目标URL
+ * @param {object} options - 请求选项 { method, headers }
+ * @param {string} postData - POST数据（可选，GET请求时为空）
  */
-function makeRequest(url, options, postData) {
+function makeRequest(url, options, postData = '') {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
         const protocol = urlObj.protocol === 'https:' ? https : http;
@@ -42,8 +45,8 @@ function makeRequest(url, options, postData) {
             hostname: urlObj.hostname,
             port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
             path: urlObj.pathname + urlObj.search,
-            method: 'POST',
-            headers: options.headers
+            method: options.method || 'POST',
+            headers: options.headers || {}
         };
 
         const req = protocol.request(requestOptions, (res) => {
@@ -71,7 +74,10 @@ function makeRequest(url, options, postData) {
             reject(error);
         });
 
-        req.write(postData);
+        // 只有POST/PUT等请求才写入body
+        if (postData && (requestOptions.method === 'POST' || requestOptions.method === 'PUT')) {
+            req.write(postData);
+        }
         req.end();
     });
 }
@@ -89,7 +95,7 @@ function makeRequest(url, options, postData) {
  */
 app.post('/proxy', async (req, res) => {
     try {
-        const { url, headers, body } = req.body;
+        const { url, headers, body, method } = req.body;
 
         // 验证必需参数
         if (!url) {
@@ -98,16 +104,24 @@ app.post('/proxy', async (req, res) => {
             });
         }
 
-        console.log(`[${new Date().toISOString()}] Proxying request to: ${url}`);
+        const requestMethod = method || 'POST';
+        console.log(`[${new Date().toISOString()}] Proxying ${requestMethod} request to: ${url}`);
 
         // 使用原生 https 模块转发请求
-        const postData = JSON.stringify(body);
+        const postData = body && Object.keys(body).length > 0 ? JSON.stringify(body) : '';
+        const requestHeaders = {
+            'Content-Type': 'application/json',
+            ...headers
+        };
+
+        // 只有POST/PUT等请求才添加Content-Length
+        if (postData && (requestMethod === 'POST' || requestMethod === 'PUT')) {
+            requestHeaders['Content-Length'] = Buffer.byteLength(postData);
+        }
+
         const response = await makeRequest(url, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData),
-                ...headers
-            }
+            method: requestMethod,
+            headers: requestHeaders
         }, postData);
 
         // 返回响应

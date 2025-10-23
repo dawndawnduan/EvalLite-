@@ -1,7 +1,7 @@
 // 模型管理模块 - 处理模型的添加、删除、显示等
 
 import { Storage } from './storage.js';
-import { MODEL_CONFIGS } from './apiClient.js';
+import { MODEL_CONFIGS, fetchSiliconFlowModels } from './apiClient.js';
 
 /**
  * 模型管理器类
@@ -32,6 +32,10 @@ export class ModelManager {
         this.defaultInputPrice = document.getElementById('defaultInputPrice');
         this.defaultOutputPrice = document.getElementById('defaultOutputPrice');
         this.pricingStatus = document.getElementById('pricingStatus');
+
+        // 刷新模型按钮（新增）
+        this.refreshModelsBtn = document.getElementById('refreshModelsBtn');
+        this.refreshHint = document.getElementById('refreshHint');
     }
 
     /**
@@ -42,6 +46,7 @@ export class ModelManager {
         if (this.providerSelect) {
             this.providerSelect.addEventListener('change', () => {
                 this.updateModelIdOptions();
+                this.toggleRefreshButton();
             });
         }
 
@@ -56,6 +61,94 @@ export class ModelManager {
             this.modelIdSelect.addEventListener('change', () => {
                 this.updateDefaultPriceDisplay();
             });
+        }
+
+        // 刷新模型按钮（新增）
+        if (this.refreshModelsBtn) {
+            this.refreshModelsBtn.addEventListener('click', () => {
+                this.refreshModelsWithApiKey();
+            });
+        }
+
+        // API Key输入框变化时显示提示
+        if (this.apiKeyInput) {
+            this.apiKeyInput.addEventListener('input', () => {
+                this.toggleRefreshButton();
+            });
+        }
+    }
+
+    /**
+     * 切换刷新按钮显示状态
+     */
+    toggleRefreshButton() {
+        if (!this.refreshModelsBtn || !this.refreshHint) return;
+
+        const provider = this.providerSelect?.value;
+        const hasApiKey = this.apiKeyInput?.value.trim().length > 0;
+
+        // 只有选择硅基流动且输入了API Key时才显示刷新按钮
+        if (provider === 'siliconflow' && hasApiKey) {
+            this.refreshModelsBtn.style.display = 'block';
+            this.refreshHint.style.display = 'block';
+        } else if (provider === 'siliconflow' && !hasApiKey) {
+            this.refreshModelsBtn.style.display = 'none';
+            this.refreshHint.style.display = 'block';
+        } else {
+            this.refreshModelsBtn.style.display = 'none';
+            this.refreshHint.style.display = 'none';
+        }
+    }
+
+    /**
+     * 使用API Key刷新模型列表
+     */
+    async refreshModelsWithApiKey() {
+        const apiKey = this.apiKeyInput?.value.trim();
+        if (!apiKey) {
+            alert('请先输入API Key');
+            return;
+        }
+
+        // 显示加载状态
+        this.modelIdSelect.innerHTML = '<option value="">正在刷新模型列表...</option>';
+        this.modelIdSelect.disabled = true;
+        this.refreshModelsBtn.disabled = true;
+        this.refreshModelsBtn.textContent = '⏳ 刷新中...';
+
+        try {
+            console.log('[ModelManager] 使用API Key刷新硅基流动模型列表');
+            const models = await fetchSiliconFlowModels(apiKey);
+
+            // 恢复可用状态
+            this.modelIdSelect.disabled = false;
+            this.refreshModelsBtn.disabled = false;
+            this.refreshModelsBtn.textContent = '🔄 刷新模型';
+
+            this.modelIdSelect.innerHTML = '<option value="">选择模型</option>';
+
+            // 填充模型列表
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = model.name;
+                this.modelIdSelect.appendChild(option);
+            });
+
+            // 显示成功提示
+            if (window.showToast) {
+                window.showToast(`✅ 成功加载 ${models.length} 个最新模型！`, 'success');
+            } else {
+                alert(`✅ 成功加载 ${models.length} 个模型！`);
+            }
+
+        } catch (error) {
+            console.error('[ModelManager] 刷新模型列表失败:', error);
+            this.modelIdSelect.disabled = false;
+            this.refreshModelsBtn.disabled = false;
+            this.refreshModelsBtn.textContent = '🔄 刷新模型';
+
+            alert('刷新模型列表失败，请检查API Key是否正确');
         }
     }
 
@@ -85,11 +178,54 @@ export class ModelManager {
     /**
      * 更新模型ID选项
      */
-    updateModelIdOptions() {
+    async updateModelIdOptions() {
         const provider = this.providerSelect.value;
         this.modelIdSelect.innerHTML = '<option value="">选择模型</option>';
 
-        if (provider && MODEL_CONFIGS[provider]) {
+        if (!provider || !MODEL_CONFIGS[provider]) {
+            return;
+        }
+
+        // 如果是硅基流动且支持实时模型列表，则动态获取
+        if (provider === 'siliconflow' && MODEL_CONFIGS[provider].supportsLiveModels) {
+            // 显示加载状态
+            this.modelIdSelect.innerHTML = '<option value="">正在加载模型列表...</option>';
+            this.modelIdSelect.disabled = true;
+
+            try {
+                const models = await fetchSiliconFlowModels();
+
+                // 恢复可用状态
+                this.modelIdSelect.disabled = false;
+                this.modelIdSelect.innerHTML = '<option value="">选择模型</option>';
+
+                // 填充模型列表
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.name;
+                    this.modelIdSelect.appendChild(option);
+                });
+
+                // 显示提示信息
+                if (window.showToast) {
+                    window.showToast(`已加载 ${models.length} 个最新模型`, 'success');
+                }
+            } catch (error) {
+                console.error('加载硅基流动模型列表失败:', error);
+                this.modelIdSelect.disabled = false;
+                this.modelIdSelect.innerHTML = '<option value="">加载失败，使用默认列表</option>';
+
+                // 使用默认列表
+                MODEL_CONFIGS[provider].models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.name;
+                    this.modelIdSelect.appendChild(option);
+                });
+            }
+        } else {
+            // 其他提供商使用静态列表
             MODEL_CONFIGS[provider].models.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model.id;
