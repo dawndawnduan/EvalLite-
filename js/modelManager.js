@@ -1,7 +1,7 @@
 // 模型管理模块 - 处理模型的添加、删除、显示等
 
 import { Storage } from './storage.js';
-import { MODEL_CONFIGS, fetchSiliconFlowModels } from './apiClient.js';
+import { MODEL_CONFIGS, fetchSiliconFlowModels, fetchOpenRouterModels } from './apiClient.js';
 
 /**
  * 模型管理器类
@@ -87,11 +87,14 @@ export class ModelManager {
         const provider = this.providerSelect?.value;
         const hasApiKey = this.apiKeyInput?.value.trim().length > 0;
 
-        // 只有选择硅基流动且输入了API Key时才显示刷新按钮
-        if (provider === 'siliconflow' && hasApiKey) {
+        // 支持实时刷新的提供商列表
+        const supportsRefresh = provider === 'siliconflow' || provider === 'openrouter';
+
+        // 只有选择支持实时刷新的提供商且输入了API Key时才显示刷新按钮
+        if (supportsRefresh && hasApiKey) {
             this.refreshModelsBtn.style.display = 'block';
             this.refreshHint.style.display = 'block';
-        } else if (provider === 'siliconflow' && !hasApiKey) {
+        } else if (supportsRefresh && !hasApiKey) {
             this.refreshModelsBtn.style.display = 'none';
             this.refreshHint.style.display = 'block';
         } else {
@@ -105,8 +108,15 @@ export class ModelManager {
      */
     async refreshModelsWithApiKey() {
         const apiKey = this.apiKeyInput?.value.trim();
+        const provider = this.providerSelect?.value;
+
         if (!apiKey) {
             alert('请先输入API Key');
+            return;
+        }
+
+        if (!provider) {
+            alert('请先选择提供商');
             return;
         }
 
@@ -117,8 +127,17 @@ export class ModelManager {
         this.refreshModelsBtn.textContent = '⏳ 刷新中...';
 
         try {
-            console.log('[ModelManager] 使用API Key刷新硅基流动模型列表');
-            const models = await fetchSiliconFlowModels(apiKey);
+            console.log(`[ModelManager] 使用API Key刷新 ${provider} 模型列表`);
+            let models;
+
+            // 根据提供商调用对应的获取函数
+            if (provider === 'siliconflow') {
+                models = await fetchSiliconFlowModels(apiKey);
+            } else if (provider === 'openrouter') {
+                models = await fetchOpenRouterModels(apiKey);
+            } else {
+                throw new Error(`提供商 ${provider} 不支持实时刷新`);
+            }
 
             // 恢复可用状态
             this.modelIdSelect.disabled = false;
@@ -186,14 +205,23 @@ export class ModelManager {
             return;
         }
 
-        // 如果是硅基流动且支持实时模型列表，则动态获取
-        if (provider === 'siliconflow' && MODEL_CONFIGS[provider].supportsLiveModels) {
+        // 如果提供商支持实时模型列表，则动态获取
+        if (MODEL_CONFIGS[provider].supportsLiveModels) {
             // 显示加载状态
             this.modelIdSelect.innerHTML = '<option value="">正在加载模型列表...</option>';
             this.modelIdSelect.disabled = true;
 
             try {
-                const models = await fetchSiliconFlowModels();
+                let models;
+
+                // 根据提供商调用对应的获取函数
+                if (provider === 'siliconflow') {
+                    models = await fetchSiliconFlowModels();
+                } else if (provider === 'openrouter') {
+                    models = await fetchOpenRouterModels();
+                } else {
+                    throw new Error(`未知的支持实时刷新的提供商: ${provider}`);
+                }
 
                 // 恢复可用状态
                 this.modelIdSelect.disabled = false;
@@ -212,7 +240,7 @@ export class ModelManager {
                     window.showToast(`已加载 ${models.length} 个最新模型`, 'success');
                 }
             } catch (error) {
-                console.error('加载硅基流动模型列表失败:', error);
+                console.error(`加载 ${provider} 模型列表失败:`, error);
                 this.modelIdSelect.disabled = false;
                 this.modelIdSelect.innerHTML = '<option value="">加载失败，使用默认列表</option>';
 
@@ -330,6 +358,104 @@ export class ModelManager {
     }
 
     /**
+     * 打开编辑价格的模态框
+     */
+    openEditPriceModal(modelId) {
+        const model = this.models.find(m => m.id === modelId);
+        if (!model) {
+            alert('模型不存在');
+            return;
+        }
+
+        // 获取当前价格
+        const pricing = Storage.getModelPricing(model);
+
+        // 填充模态框
+        const modal = document.getElementById('editPriceModal');
+        const modelNameSpan = document.getElementById('editPriceModelName');
+        const inputPriceInput = document.getElementById('editInputPrice');
+        const outputPriceInput = document.getElementById('editOutputPrice');
+        const defaultPriceHint = document.getElementById('editDefaultPriceHint');
+
+        modelNameSpan.textContent = model.modelName;
+        inputPriceInput.value = pricing ? pricing.inputPrice : '';
+        outputPriceInput.value = pricing ? pricing.outputPrice : '';
+
+        // 显示默认价格提示
+        const defaultPricing = Storage.BUILTIN_MODEL_PRICES[model.modelId];
+        if (defaultPricing) {
+            defaultPriceHint.innerHTML = `<span class="text-xs text-gray-600">💡 系统内置价格: 输入 $${defaultPricing.inputPrice} / 输出 $${defaultPricing.outputPrice} (per 1M tokens)</span>`;
+        } else {
+            defaultPriceHint.innerHTML = '<span class="text-xs text-gray-500">该模型暂无内置价格</span>';
+        }
+
+        // 保存当前编辑的模型ID
+        modal.dataset.editingModelId = modelId;
+
+        // 显示模态框
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    /**
+     * 关闭编辑价格模态框
+     */
+    closeEditPriceModal() {
+        const modal = document.getElementById('editPriceModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        delete modal.dataset.editingModelId;
+    }
+
+    /**
+     * 保存编辑后的价格
+     */
+    saveEditedPrice() {
+        const modal = document.getElementById('editPriceModal');
+        const modelId = modal.dataset.editingModelId;
+
+        if (!modelId) {
+            alert('错误：未找到要编辑的模型');
+            return;
+        }
+
+        const model = this.models.find(m => m.id === modelId);
+        if (!model) {
+            alert('错误：模型不存在');
+            return;
+        }
+
+        const inputPrice = document.getElementById('editInputPrice').value.trim();
+        const outputPrice = document.getElementById('editOutputPrice').value.trim();
+
+        // 如果两个价格都为空，删除自定义价格
+        if (!inputPrice && !outputPrice) {
+            delete model.pricing;
+            Storage.updateModel(model);
+            this.models = Storage.getModels(); // 重新加载
+            this.renderModelList();
+            this.closeEditPriceModal();
+            this.showMessage('已清除自定义价格', 'info');
+            return;
+        }
+
+        // 更新价格
+        model.pricing = {
+            inputPrice: inputPrice ? parseFloat(inputPrice) : 0,
+            outputPrice: outputPrice ? parseFloat(outputPrice) : 0,
+            currency: 'USD',
+            isCustom: true,
+            updatedAt: new Date().toISOString()
+        };
+
+        Storage.updateModel(model);
+        this.models = Storage.getModels(); // 重新加载
+        this.renderModelList();
+        this.closeEditPriceModal();
+        this.showMessage('价格更新成功', 'success');
+    }
+
+    /**
      * 渲染模型列表
      */
     renderModelList() {
@@ -360,12 +486,21 @@ export class ModelManager {
                             <p class="text-xs text-gray-400 mt-1">Key: ${this.maskApiKey(model.apiKey)}</p>
                             ${pricingDisplay}
                         </div>
-                        <button
-                            class="text-red-600 hover:text-red-800 text-sm"
-                            onclick="window.modelManager.deleteModel('${model.id}')"
-                        >
-                            删除
-                        </button>
+                        <div class="flex gap-2">
+                            <button
+                                class="text-blue-600 hover:text-blue-800 text-sm px-2 py-1 border border-blue-200 rounded hover:bg-blue-50 transition"
+                                onclick="window.modelManager.openEditPriceModal('${model.id}')"
+                                title="编辑价格"
+                            >
+                                💰 编辑价格
+                            </button>
+                            <button
+                                class="text-red-600 hover:text-red-800 text-sm px-2 py-1"
+                                onclick="window.modelManager.deleteModel('${model.id}')"
+                            >
+                                删除
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;

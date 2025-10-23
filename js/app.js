@@ -64,6 +64,7 @@ class App {
         this.loadingModal = document.getElementById('loadingModal');
         this.loadingText = document.getElementById('loadingText');
         this.exportBtn = document.getElementById('exportBtn');
+        this.exportCSVBtn = document.getElementById('exportCSVBtn');
     }
 
     /**
@@ -116,6 +117,7 @@ class App {
         // 测评相关
         this.startEvalBtn.addEventListener('click', () => this.startEvaluation());
         this.exportBtn.addEventListener('click', () => this.exportResults());
+        this.exportCSVBtn.addEventListener('click', () => this.exportCSV());
     }
 
     /**
@@ -789,6 +791,146 @@ class App {
         link.click();
 
         showToast('结果已导出', 'success');
+    }
+
+    /**
+     * 导出结果为CSV
+     */
+    exportCSV() {
+        if (!this.currentEvaluation) {
+            showToast('没有可导出的结果', 'warning');
+            return;
+        }
+
+        const { mode } = this.currentEvaluation;
+        let csvContent;
+
+        if (mode === 'single') {
+            csvContent = this.generateSingleTaskCSV();
+        } else if (mode === 'chain') {
+            csvContent = this.generateChainTaskCSV();
+        } else {
+            showToast('不支持的测试模式', 'error');
+            return;
+        }
+
+        // 创建Blob并下载
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }); // 添加BOM支持中文
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `evallite-results-${Date.now()}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast('CSV已导出', 'success');
+    }
+
+    /**
+     * 生成单任务模式的CSV
+     */
+    generateSingleTaskCSV() {
+        const { task, repeatCount, results } = this.currentEvaluation;
+
+        // CSV表头
+        const headers = [
+            '模型名称',
+            '提供商',
+            '模型ID',
+            '任务名称',
+            '执行序号',
+            '状态',
+            '输出文本',
+            '耗时(ms)',
+            'Token数',
+            '错误信息',
+            '时间戳'
+        ];
+
+        const csvRows = [headers.join(',')];
+
+        // 遍历每个模型的结果
+        results.forEach(modelResult => {
+            const { model, executions } = modelResult;
+
+            executions.forEach((exec, index) => {
+                const row = [
+                    `"${model.modelName}"`,
+                    `"${model.provider}"`,
+                    `"${model.modelId}"`,
+                    `"${task.name}"`,
+                    index + 1,
+                    exec.success ? '成功' : '失败',
+                    exec.success ? `"${(exec.content || '').replace(/"/g, '""')}"` : '', // 转义双引号
+                    exec.success ? exec.responseTime : '',
+                    exec.success ? (exec.tokensUsed || 0) : '',
+                    exec.success ? '' : `"${(exec.error || '').replace(/"/g, '""')}"`,
+                    exec.timestamp || ''
+                ];
+
+                csvRows.push(row.join(','));
+            });
+        });
+
+        return csvRows.join('\n');
+    }
+
+    /**
+     * 生成任务链模式的CSV
+     */
+    generateChainTaskCSV() {
+        const { results } = this.currentEvaluation;
+
+        // CSV表头
+        const headers = [
+            '模型名称',
+            '提供商',
+            '模型ID',
+            '步骤序号',
+            '任务名称',
+            '输入模式',
+            '状态',
+            '输出文本',
+            '耗时(ms)',
+            'Token数',
+            '错误信息',
+            '时间戳'
+        ];
+
+        const csvRows = [headers.join(',')];
+
+        // 遍历每个模型的结果
+        results.forEach(modelResult => {
+            const { model, steps } = modelResult;
+
+            steps.forEach((step, index) => {
+                const { task, inputMode, result } = step;
+                const inputModeText = inputMode === 'previous' ? '使用上一输出' :
+                                     inputMode === 'original' ? '使用原始prompt' :
+                                     inputMode === 'concat' ? '拼接模式' : inputMode;
+
+                const row = [
+                    `"${model.modelName}"`,
+                    `"${model.provider}"`,
+                    `"${model.modelId}"`,
+                    index + 1,
+                    `"${task.name}"`,
+                    `"${inputModeText}"`,
+                    result.success ? '成功' : '失败',
+                    result.success ? `"${(result.content || '').replace(/"/g, '""')}"` : '', // 转义双引号
+                    result.success ? result.responseTime : '',
+                    result.success ? (result.tokensUsed || 0) : '',
+                    result.success ? '' : `"${(result.error || '').replace(/"/g, '""')}"`,
+                    result.timestamp || ''
+                ];
+
+                csvRows.push(row.join(','));
+            });
+        });
+
+        return csvRows.join('\n');
     }
 
     /**

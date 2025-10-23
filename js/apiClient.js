@@ -60,6 +60,22 @@ export const MODEL_CONFIGS = {
         endpoint: 'https://api.siliconflow.cn/v1/chat/completions',
         modelsEndpoint: 'https://api.siliconflow.cn/v1/models?type=text&sub_type=chat', // 使用查询参数过滤聊天模型
         supportsLiveModels: true // 标记支持实时获取模型列表
+    },
+    openrouter: {
+        name: 'OpenRouter',
+        models: [
+            // 默认模型列表（后备）- 当API调用失败时使用
+            { id: 'openai/gpt-4o', name: 'GPT-4o' },
+            { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+            { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+            { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5' },
+            { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B' },
+            { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat' },
+            { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B' }
+        ],
+        endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+        modelsEndpoint: 'https://openrouter.ai/api/v1/models',
+        supportsLiveModels: true // 标记支持实时获取模型列表
     }
 };
 
@@ -95,6 +111,9 @@ export class APIClient {
                     break;
                 case 'siliconflow':
                     result = await this.callSiliconFlow(model, systemPrompt, userPrompt);
+                    break;
+                case 'openrouter':
+                    result = await this.callOpenRouter(model, systemPrompt, userPrompt);
                     break;
                 default:
                     throw new Error(`不支持的提供商: ${model.provider}`);
@@ -384,6 +403,67 @@ export class APIClient {
             tokensUsed: data.usage?.total_tokens || 0
         };
     }
+
+    /**
+     * 调用 OpenRouter API
+     */
+    static async callOpenRouter(model, systemPrompt, userPrompt) {
+        const messages = [];
+
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+        messages.push({ role: 'user', content: userPrompt });
+
+        const requestBody = {
+            model: model.modelId,
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: 2000
+        };
+
+        console.log('[APIClient] 调用 OpenRouter:', {
+            proxy: PROXY_URL,
+            model: model.modelId,
+            endpoint: MODEL_CONFIGS.openrouter.endpoint
+        });
+
+        const response = await fetch(PROXY_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: MODEL_CONFIGS.openrouter.endpoint,
+                headers: {
+                    'Authorization': `Bearer ${model.apiKey}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'https://evallite.app', // OpenRouter 要求的 Referer
+                    'X-Title': 'EvalLite' // OpenRouter 要求的应用标识
+                },
+                body: requestBody
+            })
+        }).catch(error => {
+            console.error('[APIClient] Fetch 错误:', error);
+            throw new Error(`网络连接失败: ${error.message}. 请确认代理服务器是否运行在 ${PROXY_URL}`);
+        });
+
+        console.log('[APIClient] 响应状态:', response.status);
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            console.error('[APIClient] API 错误:', error);
+            throw new Error(error.error?.message || error.message || `OpenRouter API 错误: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[APIClient] 调用成功');
+
+        return {
+            content: data.choices[0].message.content,
+            tokensUsed: data.usage?.total_tokens || 0
+        };
+    }
 }
 
 /**
@@ -493,6 +573,82 @@ export async function fetchSiliconFlowModels(apiKey = null) {
         console.error('[APIClient] 获取硅基流动模型列表出错:', error);
         console.warn('[APIClient] 使用默认模型列表');
         return MODEL_CONFIGS.siliconflow.models;
+    }
+}
+
+/**
+ * 获取 OpenRouter 的完整模型列表
+ * @param {string} apiKey - API密钥（OpenRouter 需要认证才能获取完整列表）
+ * @returns {Promise<Array>} 模型列表 [{ id: string, name: string }]
+ */
+export async function fetchOpenRouterModels(apiKey = null) {
+    try {
+        console.log('[APIClient] 正在获取 OpenRouter 模型列表...');
+        console.log('[APIClient] API Key 提供:', apiKey ? '是' : '否');
+
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        // OpenRouter 需要 API Key 才能获取完整模型列表
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        const response = await fetch(PROXY_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: MODEL_CONFIGS.openrouter.modelsEndpoint,
+                method: 'GET', // 使用 GET 方法
+                headers: headers,
+                body: {} // GET 请求，body 为空
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.warn('[APIClient] 获取 OpenRouter 模型列表失败:', response.status, errorText);
+            console.warn('[APIClient] 使用默认模型列表');
+            return MODEL_CONFIGS.openrouter.models;
+        }
+
+        const data = await response.json();
+        console.log('[APIClient] API 返回数据样本:', data.data?.slice(0, 3));
+
+        // OpenRouter API 返回格式: { data: [{ id: "provider/model-name", name: "Model Name", ... }] }
+        if (!data || !data.data || !Array.isArray(data.data)) {
+            console.warn('[APIClient] OpenRouter API 返回格式不符合预期:', data);
+            console.warn('[APIClient] 使用默认模型列表');
+            return MODEL_CONFIGS.openrouter.models;
+        }
+
+        // 转换为我们需要的格式
+        const models = data.data
+            .map(model => ({
+                id: model.id,
+                // 使用模型的 name 字段（如果有），否则使用 id 的最后部分
+                name: model.name || (model.id.includes('/') ? model.id.split('/').pop() : model.id)
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)); // 按名称排序
+
+        console.log(`[APIClient] 成功获取 ${models.length} 个 OpenRouter 模型`);
+        console.log('[APIClient] 模型列表预览:', models.slice(0, 5));
+
+        // 如果没有提供 API Key，提示用户
+        if (!apiKey) {
+            console.warn('[APIClient] ⚠️ 提示：未提供 API Key，可能只返回了部分模型');
+            console.warn('[APIClient] ⚠️ 建议：输入您的 OpenRouter API Key 以获取完整模型列表');
+        }
+
+        return models;
+
+    } catch (error) {
+        console.error('[APIClient] 获取 OpenRouter 模型列表出错:', error);
+        console.warn('[APIClient] 使用默认模型列表');
+        return MODEL_CONFIGS.openrouter.models;
     }
 }
 
