@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
     SETTINGS: 'evallite_settings',
     TASKS: 'evallite_tasks',
     CHAINS: 'evallite_chains',
-    EVALUATION_TEMPLATES: 'evallite_evaluation_templates'  // 新增：评测模板
+    EVALUATION_TEMPLATES: 'evallite_evaluation_templates',  // 评测模板
+    CUSTOM_CATEGORIES: 'evallite_custom_categories'  // 新增：自定义分类
 };
 
 const MAX_HISTORY_ITEMS = 10;
@@ -839,6 +840,86 @@ export const Storage = {
             console.error('更新评测数据失败:', error);
             return null;
         }
+    },
+
+    // ==================== 自定义分类管理 ====================
+
+    /**
+     * 获取所有自定义分类
+     * @returns {Array} 自定义分类数组
+     */
+    getCustomCategories() {
+        try {
+            const data = localStorage.getItem(STORAGE_KEYS.CUSTOM_CATEGORIES);
+            return data ? JSON.parse(data) : [];
+        } catch (error) {
+            console.error('读取自定义分类失败:', error);
+            return [];
+        }
+    },
+
+    /**
+     * 添加自定义分类
+     * @param {string} categoryName - 分类名称
+     * @returns {Object|null} 新建的分类对象，如果已存在则返回null
+     */
+    addCustomCategory(categoryName) {
+        const categories = this.getCustomCategories();
+
+        // 检查是否已存在
+        const existing = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
+        if (existing) {
+            return null; // 已存在
+        }
+
+        const newCategory = {
+            id: this.generateId(),
+            name: categoryName,
+            createdAt: new Date().toISOString()
+        };
+
+        categories.push(newCategory);
+        localStorage.setItem(STORAGE_KEYS.CUSTOM_CATEGORIES, JSON.stringify(categories));
+        return newCategory;
+    },
+
+    /**
+     * 删除自定义分类
+     * @param {string} categoryId - 分类ID
+     * @returns {boolean} 是否删除成功
+     */
+    deleteCustomCategory(categoryId) {
+        try {
+            const categories = this.getCustomCategories();
+            const filtered = categories.filter(c => c.id !== categoryId);
+            localStorage.setItem(STORAGE_KEYS.CUSTOM_CATEGORIES, JSON.stringify(filtered));
+            return true;
+        } catch (error) {
+            console.error('删除自定义分类失败:', error);
+            return false;
+        }
+    },
+
+    /**
+     * 获取所有分类（内置 + 自定义）
+     * @returns {Object} { builtin: [], custom: [] }
+     */
+    getAllCategories() {
+        const builtin = [
+            { id: 'general', name: '通用', isBuiltin: true },
+            { id: 'translation', name: '翻译', isBuiltin: true },
+            { id: 'writing', name: '写作', isBuiltin: true },
+            { id: 'analysis', name: '分析', isBuiltin: true },
+            { id: 'coding', name: '编程', isBuiltin: true },
+            { id: 'other', name: '其他', isBuiltin: true }
+        ];
+
+        const custom = this.getCustomCategories().map(c => ({
+            ...c,
+            isBuiltin: false
+        }));
+
+        return { builtin, custom };
     }
 };
 

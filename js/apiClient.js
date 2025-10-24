@@ -154,7 +154,9 @@ export class APIClient {
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
-        messages.push({ role: 'user', content: userPrompt });
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+        messages.push({ role: 'user', content: actualUserPrompt });
 
         const requestBody = {
             model: model.modelId,
@@ -214,11 +216,14 @@ export class APIClient {
      * 调用 Anthropic API
      */
     static async callAnthropic(model, systemPrompt, userPrompt) {
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+
         const requestBody = {
             model: model.modelId,
             max_tokens: 2000,
             messages: [
-                { role: 'user', content: userPrompt }
+                { role: 'user', content: actualUserPrompt }
             ]
         };
 
@@ -259,9 +264,12 @@ export class APIClient {
      * 调用 Google API
      */
     static async callGoogle(model, systemPrompt, userPrompt) {
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+
         const fullPrompt = systemPrompt
-            ? `${systemPrompt}\n\n${userPrompt}`
-            : userPrompt;
+            ? `${systemPrompt}\n\n${actualUserPrompt}`
+            : actualUserPrompt;
 
         const requestBody = {
             contents: [{
@@ -307,7 +315,9 @@ export class APIClient {
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
-        messages.push({ role: 'user', content: userPrompt });
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+        messages.push({ role: 'user', content: actualUserPrompt });
 
         const requestBody = {
             model: model.modelId,
@@ -353,7 +363,9 @@ export class APIClient {
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
-        messages.push({ role: 'user', content: userPrompt });
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+        messages.push({ role: 'user', content: actualUserPrompt });
 
         const requestBody = {
             model: model.modelId,
@@ -413,7 +425,9 @@ export class APIClient {
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
-        messages.push({ role: 'user', content: userPrompt });
+        // 如果userPrompt为空，使用默认提示
+        const actualUserPrompt = userPrompt || (systemPrompt ? '请根据上述要求进行回复' : '你好');
+        messages.push({ role: 'user', content: actualUserPrompt });
 
         const requestBody = {
             model: model.modelId,

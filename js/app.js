@@ -199,8 +199,10 @@ class App {
                     <p class="text-sm text-gray-600 mb-2">${this.escapeHtml(task.description)}</p>
                 ` : ''}
                 <p class="text-xs text-gray-500 line-clamp-2">
-                    ${task.systemPrompt ? `System: ${this.escapeHtml(task.systemPrompt)} | ` : ''}
-                    User: ${this.escapeHtml(task.userPrompt)}
+                    ${task.systemPrompt ? `System: ${this.escapeHtml(task.systemPrompt)}` : ''}
+                    ${task.systemPrompt && task.userPrompt ? ' | ' : ''}
+                    ${task.userPrompt ? `User: ${this.escapeHtml(task.userPrompt)}` : ''}
+                    ${!task.systemPrompt && !task.userPrompt ? '(未设置提示词)' : ''}
                 </p>
             </div>
         `).join('');
@@ -697,7 +699,7 @@ class App {
                 <h3 class="font-semibold text-blue-900 mb-2">任务信息</h3>
                 <p class="text-sm text-blue-800 mb-1"><strong>任务名称:</strong> ${this.escapeHtml(task.name)}</p>
                 ${task.systemPrompt ? `<p class="text-sm text-blue-800 mb-1"><strong>System Prompt:</strong> ${this.escapeHtml(task.systemPrompt)}</p>` : ''}
-                <p class="text-sm text-blue-800"><strong>User Prompt:</strong> ${this.escapeHtml(task.userPrompt)}</p>
+                ${task.userPrompt ? `<p class="text-sm text-blue-800"><strong>User Prompt:</strong> ${this.escapeHtml(task.userPrompt)}</p>` : ''}
                 ${repeatCount > 1 ? `<p class="text-sm text-blue-800 mt-2"><strong>重复次数:</strong> ${repeatCount}</p>` : ''}
             </div>
             ${resultsHTML}
