@@ -14,3 +14,19 @@ npm-debug.log*
 # Environment
 .env
 .env.local
+
+# Development documents (不上传到GitHub)
+prd.md
+models.md
+test.md
+CLAUDE.md
+DEBUG_GUIDE.md
+DEBUG_VISUALIZATION.md
+REFACTORING_SUMMARY_v0.6.md
+SILICONFLOW_LIVE_MODELS_UPDATE.md
+V0.5_USAGE_GUIDE.md
+排查步骤.md
+
+# Build outputs
+release/
+build-release.sh
