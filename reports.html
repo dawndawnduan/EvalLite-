@@ -766,9 +766,9 @@ ${jsonExample}
                         </div>
 
                         <!-- 输出内容预览 -->
-                        <div class="mb-3 p-3 bg-white rounded border border-gray-200">
+                        <div class="mb-3 p-3 bg-white rounded border border-gray-200 max-h-96 overflow-y-auto">
                             ${item.success ? `
-                                <p class="text-xs text-gray-700 line-clamp-3">${this.escapeHtml(item.content || '')}</p>
+                                <p class="text-xs text-gray-700 whitespace-pre-wrap break-words">${this.escapeHtml(item.content || '')}</p>
                             ` : `
                                 <p class="text-xs text-red-600">❌ ${this.escapeHtml(item.error || '执行失败')}</p>
                             `}

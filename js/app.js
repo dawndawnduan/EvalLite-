@@ -852,7 +852,9 @@ class App {
             '状态',
             '输出文本',
             '耗时(ms)',
-            'Token数',
+            '输入Token',
+            '输出Token',
+            '总Token数',
             '错误信息',
             '时间戳'
         ];
@@ -873,6 +875,8 @@ class App {
                     exec.success ? '成功' : '失败',
                     exec.success ? `"${(exec.content || '').replace(/"/g, '""')}"` : '', // 转义双引号
                     exec.success ? exec.responseTime : '',
+                    exec.success ? (exec.inputTokens || 0) : '',
+                    exec.success ? (exec.outputTokens || 0) : '',
                     exec.success ? (exec.tokensUsed || 0) : '',
                     exec.success ? '' : `"${(exec.error || '').replace(/"/g, '""')}"`,
                     exec.timestamp || ''
@@ -902,7 +906,9 @@ class App {
             '状态',
             '输出文本',
             '耗时(ms)',
-            'Token数',
+            '输入Token',
+            '输出Token',
+            '总Token数',
             '错误信息',
             '时间戳'
         ];
@@ -929,6 +935,8 @@ class App {
                     result.success ? '成功' : '失败',
                     result.success ? `"${(result.content || '').replace(/"/g, '""')}"` : '', // 转义双引号
                     result.success ? result.responseTime : '',
+                    result.success ? (result.inputTokens || 0) : '',
+                    result.success ? (result.outputTokens || 0) : '',
                     result.success ? (result.tokensUsed || 0) : '',
                     result.success ? '' : `"${(result.error || '').replace(/"/g, '""')}"`,
                     result.timestamp || ''
