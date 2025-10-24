@@ -126,6 +126,8 @@ export class APIClient {
                 success: true,
                 content: result.content,
                 responseTime,
+                inputTokens: result.inputTokens || 0,
+                outputTokens: result.outputTokens || 0,
                 tokensUsed: result.tokensUsed || 0,
                 model: model,
                 timestamp: new Date().toISOString()
@@ -208,6 +210,8 @@ export class APIClient {
 
         return {
             content: data.choices[0].message.content,
+            inputTokens: data.usage?.prompt_tokens || 0,
+            outputTokens: data.usage?.completion_tokens || 0,
             tokensUsed: data.usage?.total_tokens || 0
         };
     }
@@ -256,7 +260,9 @@ export class APIClient {
 
         return {
             content: data.content[0].text,
-            tokensUsed: data.usage?.input_tokens + data.usage?.output_tokens || 0
+            inputTokens: data.usage?.input_tokens || 0,
+            outputTokens: data.usage?.output_tokens || 0,
+            tokensUsed: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
         };
     }
 
@@ -302,7 +308,9 @@ export class APIClient {
 
         return {
             content: data.candidates[0].content.parts[0].text,
-            tokensUsed: 0 // Google API 不直接返回token数
+            inputTokens: 0, // Google API 不直接返回token数
+            outputTokens: 0,
+            tokensUsed: 0
         };
     }
 
@@ -350,6 +358,8 @@ export class APIClient {
 
         return {
             content: data.choices[0].message.content,
+            inputTokens: data.usage?.prompt_tokens || 0,
+            outputTokens: data.usage?.completion_tokens || 0,
             tokensUsed: data.usage?.total_tokens || 0
         };
     }
@@ -412,6 +422,8 @@ export class APIClient {
 
         return {
             content: data.choices[0].message.content,
+            inputTokens: data.usage?.prompt_tokens || 0,
+            outputTokens: data.usage?.completion_tokens || 0,
             tokensUsed: data.usage?.total_tokens || 0
         };
     }
@@ -475,6 +487,8 @@ export class APIClient {
 
         return {
             content: data.choices[0].message.content,
+            inputTokens: data.usage?.prompt_tokens || 0,
+            outputTokens: data.usage?.completion_tokens || 0,
             tokensUsed: data.usage?.total_tokens || 0
         };
     }

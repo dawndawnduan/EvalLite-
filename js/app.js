@@ -635,6 +635,12 @@ class App {
             const avgResponseTime = successExecutions.length > 0
                 ? (successExecutions.reduce((sum, e) => sum + e.responseTime, 0) / successExecutions.length).toFixed(0)
                 : 0;
+            const avgInputTokens = successExecutions.length > 0
+                ? (successExecutions.reduce((sum, e) => sum + (e.inputTokens || 0), 0) / successExecutions.length).toFixed(0)
+                : 0;
+            const avgOutputTokens = successExecutions.length > 0
+                ? (successExecutions.reduce((sum, e) => sum + (e.outputTokens || 0), 0) / successExecutions.length).toFixed(0)
+                : 0;
             const avgTokens = successExecutions.length > 0
                 ? (successExecutions.reduce((sum, e) => sum + (e.tokensUsed || 0), 0) / successExecutions.length).toFixed(0)
                 : 0;
@@ -652,7 +658,7 @@ class App {
                                     成功: ${successExecutions.length}/${repeatCount}
                                 </div>
                                 <div class="text-xs text-gray-500">
-                                    平均耗时: ${avgResponseTime}ms | 平均tokens: ${avgTokens}
+                                    平均耗时: ${avgResponseTime}ms | Tokens: 输入${avgInputTokens} + 输出${avgOutputTokens} = ${avgTokens}
                                 </div>
                             </div>
                         ` : ''}
@@ -664,7 +670,7 @@ class App {
                                 <p class="text-gray-800 whitespace-pre-wrap">${this.escapeHtml(executions[0].content)}</p>
                             </div>
                             <div class="text-sm text-gray-600">
-                                耗时: ${executions[0].responseTime}ms | Tokens: ${executions[0].tokensUsed}
+                                耗时: ${executions[0].responseTime}ms | Tokens: 输入${executions[0].inputTokens || 0} + 输出${executions[0].outputTokens || 0} = ${executions[0].tokensUsed}
                             </div>
                         ` : `
                             <div class="bg-red-50 p-4 rounded border border-red-200">
@@ -678,7 +684,7 @@ class App {
                                     <div class="flex justify-between items-start mb-2">
                                         <span class="text-xs font-medium text-gray-700">执行 ${i + 1}</span>
                                         ${exec.success ? `
-                                            <span class="text-xs text-gray-500">${exec.responseTime}ms | ${exec.tokensUsed} tokens</span>
+                                            <span class="text-xs text-gray-500">${exec.responseTime}ms | 输入${exec.inputTokens || 0} + 输出${exec.outputTokens || 0} = ${exec.tokensUsed} tokens</span>
                                         ` : ''}
                                     </div>
                                     ${exec.success ? `
@@ -749,7 +755,7 @@ class App {
                                             <p class="text-sm text-gray-800 whitespace-pre-wrap">${this.escapeHtml(result.content)}</p>
                                         </div>
                                         <div class="text-xs text-gray-500">
-                                            ⏱️ ${result.responseTime}ms | 🔤 ${result.tokensUsed} tokens
+                                            ⏱️ ${result.responseTime}ms | 🔤 输入${result.inputTokens || 0} + 输出${result.outputTokens || 0} = ${result.tokensUsed} tokens
                                         </div>
                                     ` : `
                                         <div class="bg-red-50 border border-red-200 rounded p-3">

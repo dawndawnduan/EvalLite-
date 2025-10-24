@@ -291,8 +291,12 @@
 
                                 // 计算成本
                                 const pricing = Storage.getModelPricing(model);
-                                const cost = pricing && exec.tokensUsed
-                                    ? Storage.calculateCost(exec.tokensUsed / 2, exec.tokensUsed / 2, pricing)
+                                const cost = pricing && (exec.inputTokens || exec.outputTokens || exec.tokensUsed)
+                                    ? Storage.calculateCost(
+                                        exec.inputTokens || (exec.tokensUsed / 2),
+                                        exec.outputTokens || (exec.tokensUsed / 2),
+                                        pricing
+                                    )
                                     : 0;
 
                                 return `
@@ -304,7 +308,7 @@
                                             </div>
                                             <div class="text-right text-sm">
                                                 <p class="text-gray-600">耗时: ${exec.responseTime}ms</p>
-                                                <p class="text-gray-500">Tokens: ${exec.tokensUsed}</p>
+                                                <p class="text-gray-500">Tokens: 输入${exec.inputTokens || 0} + 输出${exec.outputTokens || 0} = ${exec.tokensUsed}</p>
                                                 ${cost > 0 ? `<p class="text-green-600">成本: $${cost.toFixed(6)}</p>` : ''}
                                             </div>
                                         </div>

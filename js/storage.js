@@ -627,13 +627,24 @@ export const Storage = {
                         if (exec.success) {
                             // 计算成本
                             const pricing = this.getModelPricing(modelResult.model);
-                            if (pricing && exec.tokensUsed) {
-                                const cost = this.calculateCost(
-                                    exec.tokensUsed / 2,
-                                    exec.tokensUsed / 2,
-                                    pricing
-                                );
-                                totalCost += cost;
+                            if (pricing) {
+                                // 优先使用详细的输入输出token数
+                                if (exec.inputTokens !== undefined && exec.outputTokens !== undefined) {
+                                    const cost = this.calculateCost(
+                                        exec.inputTokens,
+                                        exec.outputTokens,
+                                        pricing
+                                    );
+                                    totalCost += cost;
+                                } else if (exec.tokensUsed) {
+                                    // 降级：如果只有总token数，假设各占一半（不准确，但总比没有好）
+                                    const cost = this.calculateCost(
+                                        exec.tokensUsed / 2,
+                                        exec.tokensUsed / 2,
+                                        pricing
+                                    );
+                                    totalCost += cost;
+                                }
                             }
                             // 计算响应时间
                             if (exec.responseTime) {
@@ -651,13 +662,24 @@ export const Storage = {
                     modelResult.steps.forEach(step => {
                         if (step.result && step.result.success) {
                             const pricing = this.getModelPricing(modelResult.model);
-                            if (pricing && step.result.tokensUsed) {
-                                const cost = this.calculateCost(
-                                    step.result.tokensUsed / 2,
-                                    step.result.tokensUsed / 2,
-                                    pricing
-                                );
-                                totalCost += cost;
+                            if (pricing) {
+                                // 优先使用详细的输入输出token数
+                                if (step.result.inputTokens !== undefined && step.result.outputTokens !== undefined) {
+                                    const cost = this.calculateCost(
+                                        step.result.inputTokens,
+                                        step.result.outputTokens,
+                                        pricing
+                                    );
+                                    totalCost += cost;
+                                } else if (step.result.tokensUsed) {
+                                    // 降级：如果只有总token数，假设各占一半（不准确，但总比没有好）
+                                    const cost = this.calculateCost(
+                                        step.result.tokensUsed / 2,
+                                        step.result.tokensUsed / 2,
+                                        pricing
+                                    );
+                                    totalCost += cost;
+                                }
                             }
                             if (step.result.responseTime) {
                                 totalResponseTime += step.result.responseTime;
